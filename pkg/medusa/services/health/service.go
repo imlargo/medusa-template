@@ -61,12 +61,12 @@ func (s *Service) Check(ctx context.Context) HealthStatus {
 			if err := chk.Check(checkCtx); err != nil {
 				result.Status = "unhealthy"
 				result.Message = err.Error()
-				mu.Lock()
-				allHealthy = false
-				mu.Unlock()
 			}
 			
 			mu.Lock()
+			if result.Status == "unhealthy" {
+				allHealthy = false
+			}
 			results[index] = result
 			mu.Unlock()
 		}(i, checker)

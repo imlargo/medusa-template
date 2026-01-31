@@ -40,7 +40,9 @@ func NewWithOptions(name string, opts Options) (*App, error) {
 	}
 
 	// Setup router
-	router := gin.Default()
+	router := gin.New()
+	// Add Gin's built-in logger middleware
+	router.Use(gin.Logger())
 	SetupRoutes(router, container)
 
 	// Create HTTP server

@@ -14,6 +14,9 @@ type DatabaseChecker struct {
 
 // NewDatabaseChecker creates a new database health checker.
 func NewDatabaseChecker(db *gorm.DB) *DatabaseChecker {
+	if db == nil {
+		panic("health: NewDatabaseChecker called with nil *gorm.DB")
+	}
 	return &DatabaseChecker{db: db}
 }
 
@@ -38,6 +41,9 @@ type RedisChecker struct {
 
 // NewRedisChecker creates a new Redis health checker.
 func NewRedisChecker(client *redis.Client) *RedisChecker {
+	if client == nil {
+		panic("health: NewRedisChecker called with nil *redis.Client")
+	}
 	return &RedisChecker{client: client}
 }
 
@@ -51,26 +57,6 @@ func (c *RedisChecker) Check(ctx context.Context) error {
 	return c.client.Ping(ctx).Err()
 }
 
-// StorageChecker checks storage connectivity.
-type StorageChecker struct {
-	checkFunc func(ctx context.Context) error
-}
-
-// NewStorageChecker creates a new storage health checker.
-func NewStorageChecker(checkFunc func(ctx context.Context) error) *StorageChecker {
-	return &StorageChecker{checkFunc: checkFunc}
-}
-
-// Name returns the checker name.
-func (c *StorageChecker) Name() string {
-	return "storage"
-}
-
-// Check performs the storage health check.
-func (c *StorageChecker) Check(ctx context.Context) error {
-	return c.checkFunc(ctx)
-}
-
 // GenericChecker is a generic health checker.
 type GenericChecker struct {
 	name      string
@@ -79,6 +65,12 @@ type GenericChecker struct {
 
 // NewGenericChecker creates a new generic health checker.
 func NewGenericChecker(name string, checkFunc func(ctx context.Context) error) *GenericChecker {
+	if name == "" {
+		panic("health: NewGenericChecker called with empty name")
+	}
+	if checkFunc == nil {
+		panic("health: NewGenericChecker called with nil checkFunc")
+	}
 	return &GenericChecker{
 		name:      name,
 		checkFunc: checkFunc,

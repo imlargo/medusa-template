@@ -2,6 +2,7 @@
 package medusa
 
 import (
+	"reflect"
 	"strconv"
 	"strings"
 
@@ -51,9 +52,17 @@ func formatValidationMessage(e validator.FieldError) string {
 	case "email":
 		return "invalid email format"
 	case "min":
-		return "must be at least " + e.Param() + " characters"
+		// Check if it's a string/slice field or numeric field
+		if e.Type().Kind() == reflect.String || e.Type().Kind() == reflect.Slice {
+			return "must be at least " + e.Param() + " characters"
+		}
+		return "must be at least " + e.Param()
 	case "max":
-		return "must be at most " + e.Param() + " characters"
+		// Check if it's a string/slice field or numeric field
+		if e.Type().Kind() == reflect.String || e.Type().Kind() == reflect.Slice {
+			return "must be at most " + e.Param() + " characters"
+		}
+		return "must be at most " + e.Param()
 	case "gte":
 		return "must be greater than or equal to " + e.Param()
 	case "lte":

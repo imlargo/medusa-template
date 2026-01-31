@@ -30,7 +30,9 @@ func (c *Context) Ctx() context.Context {
 // RequestID returns the request ID if set by middleware.
 func (c *Context) RequestID() string {
 	if id, exists := c.Get(RequestIDContextKey); exists {
-		return id.(string)
+		if strID, ok := id.(string); ok {
+			return strID
+		}
 	}
 	return ""
 }

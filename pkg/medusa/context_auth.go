@@ -22,6 +22,8 @@ func (c *Context) UserID() (uint, bool) {
 }
 
 // MustUserID returns the user ID or panics if not authenticated.
+// WARNING: This will be caught by recovery middleware and result in a 500 error.
+// Use UserID() and handle the bool return for proper 401 Unauthorized responses.
 func (c *Context) MustUserID() uint {
 	id, ok := c.UserID()
 	if !ok {
