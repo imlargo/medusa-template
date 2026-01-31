@@ -5,18 +5,20 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/imlargo/medusa/pkg/medusa/core/logger"
 )
 
 // Context keys
 const (
-	ContextUserIDKey    = "medusa_user_id"
-	ContextRequestIDKey = "medusa_request_id"
-	ContextStartTimeKey = "medusa_start_time"
+	UserIDContextKey    = "medusa_user_id"
+	RequestIDContextKey = "medusa_request_id"
+	LoggerContextKey    = "medusa_logger"
+	StartTimeContextKey = "medusa_start_time"
 )
 
-// Helpers type-safe
+// Helpers for backward compatibility
 func GetUserID(c *gin.Context) (uint, bool) {
-	id, exists := c.Get(ContextUserIDKey)
+	id, exists := c.Get(UserIDContextKey)
 	if !exists {
 		return 0, false
 	}
@@ -24,107 +26,47 @@ func GetUserID(c *gin.Context) (uint, bool) {
 }
 
 func SetUserID(c *gin.Context, id uint) {
-	c.Set(ContextUserIDKey, id)
+	c.Set(UserIDContextKey, id)
 }
 
-// Context wraps gin.Context with additional helpers.
-// It provides a cleaner API for common operations while
-// maintaining full access to the underlying Gin context.
+
+// Context wraps gin.Context with additional helpers for common operations.
 type Context struct {
 	*gin.Context
+	logger *logger.Logger
 }
 
 // NewContext creates a new Medusa context from a Gin context.
 func NewContext(c *gin.Context) *Context {
 	ctx := &Context{Context: c}
+	if l, exists := c.Get(LoggerContextKey); exists {
+		ctx.logger = l.(*logger.Logger)
+	}
 	return ctx
 }
 
-// Ctx returns the standard library context.
-// Use this when calling services that need context.Context.
+// Ctx returns the standard library context for passing to services.
 func (c *Context) Ctx() context.Context {
 	return c.Request.Context()
 }
 
-// RequestID returns the request ID if set.
+// Logger returns the request-scoped logger.
+func (c *Context) Logger() *logger.Logger {
+	return c.logger
+}
+
+// RequestID returns the request ID if set by middleware.
 func (c *Context) RequestID() string {
-	if id, exists := c.Get(ContextRequestIDKey); exists {
+	if id, exists := c.Get(RequestIDContextKey); exists {
 		return id.(string)
 	}
 	return ""
 }
 
-// SetRequestID sets the request ID (typically called by middleware).
-func (c *Context) SetRequestID(id string) {
-	c.Set(ContextRequestIDKey, id)
-	c.Header("X-Request-ID", id)
-}
-
-// StartTime returns when the request started.
-func (c *Context) StartTime() time.Time {
-	if t, exists := c.Get(ContextStartTimeKey); exists {
-		return t.(time.Time)
-	}
-	return time.Time{}
-}
-
-// Elapsed returns the time elapsed since request start.
+// Elapsed returns time elapsed since request start.
 func (c *Context) Elapsed() time.Duration {
-	start := c.StartTime()
-	if start.IsZero() {
-		return 0
+	if t, exists := c.Get(StartTimeContextKey); exists {
+		return time.Since(t.(time.Time))
 	}
-	return time.Since(start)
-}
-
-// SetValue sets a value in the context.
-func (c *Context) SetValue(key string, value interface{}) {
-	c.Set(key, value)
-}
-
-// GetValue gets a value from the context.
-func (c *Context) GetValue(key string) (interface{}, bool) {
-	return c.Get(key)
-}
-
-// MustGetValue gets a value or panics if not found.
-func (c *Context) MustGetValue(key string) interface{} {
-	val, exists := c.Get(key)
-	if !exists {
-		panic("medusa: required context value not found: " + key)
-	}
-	return val
-}
-
-// UserID returns the authenticated user's ID.
-// Returns 0 and false if user is not authenticated.
-func (c *Context) UserID() (uint, bool) {
-	id, exists := c.Get(ContextUserIDKey)
-	if !exists {
-		return 0, false
-	}
-
-	switch v := id.(type) {
-	case uint:
-		return v, true
-	case int:
-		return uint(v), true
-	case int64:
-		return uint(v), true
-	case float64:
-		return uint(v), true
-	default:
-		return 0, false
-	}
-}
-
-// SetUserID sets the authenticated user ID (called by auth middleware).
-func (c *Context) SetUserID(id uint) {
-	c.Set(ContextUserIDKey, id)
-}
-
-// IsAuthenticated returns true if user is authenticated.
-func (c *Context) IsAuthenticated() bool {
-	_, exists := c.UserID()
-	return exists
+	return 0
 }
