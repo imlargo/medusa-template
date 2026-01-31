@@ -15,16 +15,25 @@ type HealthChecker func(ctx context.Context) error
 // HealthHandler handles health check endpoints.
 type HealthHandler struct {
 	*Handler
-	checkers map[string]HealthChecker
-	mu       sync.RWMutex
+	checkers       map[string]HealthChecker
+	mu             sync.RWMutex
+	checkTimeout   time.Duration
 }
 
 // NewHealthHandler creates a new health handler.
 func NewHealthHandler(handler *Handler) *HealthHandler {
 	return &HealthHandler{
-		Handler:  handler,
-		checkers: make(map[string]HealthChecker),
+		Handler:      handler,
+		checkers:     make(map[string]HealthChecker),
+		checkTimeout: 5 * time.Second,
 	}
+}
+
+// SetCheckTimeout sets the timeout for health checks.
+func (h *HealthHandler) SetCheckTimeout(timeout time.Duration) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.checkTimeout = timeout
 }
 
 // RegisterChecker adds a health checker for a dependency.
@@ -58,9 +67,10 @@ func (h *HealthHandler) Ready(c *gin.Context) {
 	for k, v := range h.checkers {
 		checkers[k] = v
 	}
+	timeout := h.checkTimeout
 	h.mu.RUnlock()
 
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), timeout)
 	defer cancel()
 
 	status := HealthStatus{
