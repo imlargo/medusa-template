@@ -171,7 +171,9 @@ func (c *Container) buildHealthService() *health.Service {
 		svc.RegisterChecker(health.NewRedisChecker(c.RedisClient))
 	}
 
-	// Note: Storage health is validated at initialization, no separate check needed
+	// Note: Storage health checking is intentionally omitted because storage clients
+	// handle connection errors internally and the storage layer validates connectivity
+	// at initialization. Adding a runtime health check would be redundant.
 
 	return svc
 }

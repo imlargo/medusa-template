@@ -64,11 +64,13 @@ func (c *Context) Error(err error) {
 		responses.ErrorUnauthorized(c.Context, appErr.Message)
 	case "FORBIDDEN":
 		// Note: responses package doesn't have a FORBIDDEN error constant, using BAD_REQUEST code with 403 status
+		// This means the logical error code ("BAD_REQUEST") does not match the HTTP status (403) for this case.
 		responses.WriteErrorResponse(c.Context, http.StatusForbidden, responses.ErrBadRequest, appErr.Message, appErr.Details)
 	case "NOT_FOUND":
 		responses.WriteErrorResponse(c.Context, http.StatusNotFound, responses.ErrNotFound, appErr.Message, appErr.Details)
 	case "CONFLICT":
 		// Note: responses package doesn't have a CONFLICT error constant, using BAD_REQUEST code with 409 status
+		// This means the logical error code ("BAD_REQUEST") does not match the HTTP status (409) for this case.
 		responses.WriteErrorResponse(c.Context, http.StatusConflict, responses.ErrBadRequest, appErr.Message, appErr.Details)
 	case "TOO_MANY_REQUESTS":
 		responses.ErrorTooManyRequests(c.Context, appErr.Message)
@@ -81,11 +83,8 @@ func (c *Context) Error(err error) {
 			responses.ErrorInternalServerWithMessage(c.Context, appErr.Message, appErr.Details)
 		}
 	default:
-		if appErr.Internal != nil {
-			responses.ErrorInternalServer(c.Context, appErr.Details)
-		} else {
-			responses.ErrorBadRequest(c.Context, appErr.Message)
-		}
+		// Handle unknown error codes
+		responses.ErrorBadRequest(c.Context, appErr.Message)
 	}
 }
 

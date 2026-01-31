@@ -2,7 +2,6 @@ package health
 
 import (
 	"context"
-	"sync"
 	"time"
 )
 
@@ -10,7 +9,6 @@ import (
 type Service struct {
 	checkers []Checker
 	timeout  time.Duration
-	mu       sync.RWMutex
 }
 
 // NewService creates a new health check service.
@@ -25,18 +23,14 @@ func NewService(timeout time.Duration) *Service {
 }
 
 // RegisterChecker adds a health checker to the service.
+// Note: This should only be called during initialization before any concurrent access.
 func (s *Service) RegisterChecker(checker Checker) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.checkers = append(s.checkers, checker)
 }
 
 // Check performs all health checks and returns the overall status.
 func (s *Service) Check(ctx context.Context) HealthStatus {
-	s.mu.RLock()
-	checkers := make([]Checker, len(s.checkers))
-	copy(checkers, s.checkers)
-	s.mu.RUnlock()
+	checkers := s.checkers
 
 	// Create context with timeout
 	checkCtx, cancel := context.WithTimeout(ctx, s.timeout)

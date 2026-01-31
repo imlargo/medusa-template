@@ -120,7 +120,7 @@ func (c *Context) QueryBool(name string, defaultValue bool) bool {
 // Pagination represents pagination parameters.
 type Pagination struct {
 	Page     int `form:"page" binding:"omitempty,min=1"`
-	PageSize int `form:"page_size" binding:"omitempty,min=1,max=100"`
+	PageSize int `form:"page_size" binding:"omitempty,min=1"`
 }
 
 // GetPage returns validated page number (minimum 1).
