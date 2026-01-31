@@ -89,7 +89,8 @@ func (a *AuthHandler) Register(c *gin.Context) {
 // @Security     BearerAuth
 func (a *AuthHandler) GetUser(c *gin.Context) {
 
-	userID, exists := medusa.GetUserID(c)
+	ctx := medusa.NewContext(c)
+	userID, exists := ctx.UserID()
 	if !exists {
 		responses.ErrorUnauthorized(c, "User not authenticated")
 		return

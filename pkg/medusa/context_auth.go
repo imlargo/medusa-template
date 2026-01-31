@@ -25,7 +25,7 @@ func (c *Context) UserID() (uint, bool) {
 func (c *Context) MustUserID() uint {
 	id, ok := c.UserID()
 	if !ok {
-		panic("medusa: user not authenticated - ensure authentication middleware is configured")
+		panic("medusa: user not authenticated")
 	}
 	return id
 }

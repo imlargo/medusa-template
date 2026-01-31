@@ -1,33 +1,15 @@
-// pkg/medusa/context_response.go
 package medusa
 
 import (
 	"math"
 	"net/http"
+
+	"github.com/imlargo/medusa/pkg/medusa/core/responses"
 )
-
-// Response represents a standard API response.
-type Response struct {
-	Success bool        `json:"success"`
-	Data    interface{} `json:"data,omitempty"`
-	Message string      `json:"message,omitempty"`
-}
-
-// ErrorBody contains error details.
-type ErrorBody struct {
-	Code    string      `json:"code"`
-	Message string      `json:"message"`
-	Details interface{} `json:"details,omitempty"`
-}
-
-// ErrorResponseBody is the error response format.
-type ErrorResponseBody struct {
-	Success bool      `json:"success"`
-	Error   ErrorBody `json:"error"`
-}
 
 // PagedResponse is the paginated response format.
 type PagedResponse[T any] struct {
+	Status     int            `json:"status"`
 	Success    bool           `json:"success"`
 	Data       []T            `json:"data"`
 	Pagination PaginationMeta `json:"pagination"`
@@ -45,17 +27,22 @@ type PaginationMeta struct {
 
 // OK sends a 200 response with data.
 func (c *Context) OK(data interface{}) {
-	c.JSON(http.StatusOK, Response{Success: true, Data: data})
-}
-
-// OKWithMessage sends a 200 response with data and message.
-func (c *Context) OKWithMessage(data interface{}, message string) {
-	c.JSON(http.StatusOK, Response{Success: true, Data: data, Message: message})
+	responses.SuccessOK(c.Context, data)
 }
 
 // Created sends a 201 response with data.
 func (c *Context) Created(data interface{}) {
-	c.JSON(http.StatusCreated, Response{Success: true, Data: data, Message: "created"})
+	responses.SuccessCreated(c.Context, data)
+}
+
+// Updated sends a 200 response for successful update.
+func (c *Context) Updated(data interface{}) {
+	responses.SuccessUpdated(c.Context, data)
+}
+
+// Deleted sends a 200 response for successful deletion.
+func (c *Context) Deleted() {
+	responses.SuccessDeleted(c.Context)
 }
 
 // NoContent sends a 204 response.
@@ -63,25 +50,35 @@ func (c *Context) NoContent() {
 	c.Status(http.StatusNoContent)
 }
 
-// Deleted sends a 200 response for successful deletion.
-func (c *Context) Deleted() {
-	c.JSON(http.StatusOK, Response{Success: true, Message: "deleted"})
-}
-
 // Error sends an error response.
 func (c *Context) Error(err error) {
 	appErr := ToError(err)
-	if appErr.Internal != nil && c.logger != nil {
-		c.logger.Sugar().Error(appErr.Error())
+	
+	// Map to responses package error codes
+	switch appErr.Code {
+	case "BAD_REQUEST":
+		responses.ErrorBadRequest(c.Context, appErr.Message)
+	case "VALIDATION_ERROR":
+		responses.WriteErrorResponse(c.Context, http.StatusBadRequest, responses.ErrBindJson, appErr.Message, appErr.Details)
+	case "UNAUTHORIZED":
+		responses.ErrorUnauthorized(c.Context, appErr.Message)
+	case "FORBIDDEN":
+		responses.ErrorBadRequest(c.Context, appErr.Message)
+	case "NOT_FOUND":
+		responses.ErrorNotFound(c.Context, appErr.Message)
+	case "CONFLICT":
+		responses.ErrorBadRequest(c.Context, appErr.Message)
+	case "TOO_MANY_REQUESTS":
+		responses.ErrorTooManyRequests(c.Context, appErr.Message)
+	case "SERVICE_UNAVAILABLE":
+		responses.ErrorInternalServerWithMessage(c.Context, appErr.Message, nil)
+	default:
+		if appErr.Internal != nil {
+			responses.ErrorInternalServer(c.Context, appErr.Details)
+		} else {
+			responses.ErrorBadRequest(c.Context, appErr.Message)
+		}
 	}
-	c.JSON(appErr.Status, ErrorResponseBody{
-		Success: false,
-		Error: ErrorBody{
-			Code:    appErr.Code,
-			Message: appErr.Message,
-			Details: appErr.Details,
-		},
-	})
 }
 
 // AbortWithError sends an error and aborts the middleware chain.
@@ -97,6 +94,7 @@ func Paged[T any](c *Context, data []T, page Pagination, totalItems int64) {
 	currentPage := page.GetPage()
 
 	c.JSON(http.StatusOK, PagedResponse[T]{
+		Status:  http.StatusOK,
 		Success: true,
 		Data:    data,
 		Pagination: PaginationMeta{
