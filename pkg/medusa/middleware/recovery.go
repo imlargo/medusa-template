@@ -1,7 +1,7 @@
 package middleware
 
 import (
-	"fmt"
+	"log"
 	"runtime/debug"
 
 	"github.com/gin-gonic/gin"
@@ -19,8 +19,10 @@ func RecoveryMiddleware() gin.HandlerFunc {
 				// Get stack trace
 				stack := debug.Stack()
 				
-				// Log the panic with details (using fmt for now since logger was removed)
-				fmt.Printf("[PANIC RECOVERED] Request ID: %s, Path: %s, Panic: %v\nStack: %s\n",
+				// Log the panic with details using standard logger
+				// Note: Using standard log package since recovery middleware runs
+				// before container initialization and doesn't have access to app logger
+				log.Printf("[PANIC RECOVERED] Request ID: %s, Path: %s, Panic: %v\nStack:\n%s\n",
 					ctx.RequestID(),
 					c.Request.URL.Path,
 					r,

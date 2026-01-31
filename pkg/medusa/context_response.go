@@ -63,13 +63,12 @@ func (c *Context) Error(err error) {
 	case "UNAUTHORIZED":
 		responses.ErrorUnauthorized(c.Context, appErr.Message)
 	case "FORBIDDEN":
+		// Note: responses package doesn't have a FORBIDDEN error constant, using BAD_REQUEST code with 403 status
 		responses.WriteErrorResponse(c.Context, http.StatusForbidden, responses.ErrBadRequest, appErr.Message, appErr.Details)
 	case "NOT_FOUND":
-		// Extract just resource type if message contains "not found"
-		// Otherwise use the message as-is for resource name
-		resource := appErr.Message
-		responses.WriteErrorResponse(c.Context, http.StatusNotFound, responses.ErrNotFound, resource, appErr.Details)
+		responses.WriteErrorResponse(c.Context, http.StatusNotFound, responses.ErrNotFound, appErr.Message, appErr.Details)
 	case "CONFLICT":
+		// Note: responses package doesn't have a CONFLICT error constant, using BAD_REQUEST code with 409 status
 		responses.WriteErrorResponse(c.Context, http.StatusConflict, responses.ErrBadRequest, appErr.Message, appErr.Details)
 	case "TOO_MANY_REQUESTS":
 		responses.ErrorTooManyRequests(c.Context, appErr.Message)
