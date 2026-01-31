@@ -31,46 +31,46 @@ func (e *Error) Unwrap() error {
 // Error constructors
 
 func ErrBadRequest(message string) *Error {
-	return &Error{Code: responses.ErrBadRequest, Message: message, Status: http.StatusBadRequest}
+	return &Error{Code: responses.ErrCodeBadRequest, Message: message, Status: http.StatusBadRequest}
 }
 
 func ErrValidation(message string, details interface{}) *Error {
-	return &Error{Code: responses.ErrBindJson, Message: message, Status: http.StatusBadRequest, Details: details}
+	return &Error{Code: responses.ErrCodeBindJson, Message: message, Status: http.StatusBadRequest, Details: details}
 }
 
 func ErrUnauthorized(message string) *Error {
-	return &Error{Code: responses.ErrUnauthorized, Message: message, Status: http.StatusUnauthorized}
+	return &Error{Code: responses.ErrCodeUnauthorized, Message: message, Status: http.StatusUnauthorized}
 }
 
 func ErrForbidden(message string) *Error {
-	return &Error{Code: responses.ErrForbidden, Message: message, Status: http.StatusForbidden}
+	return &Error{Code: responses.ErrCodeForbidden, Message: message, Status: http.StatusForbidden}
 }
 
 func ErrNotFound(resource string) *Error {
-	return &Error{Code: responses.ErrNotFound, Message: fmt.Sprintf("%s not found", resource), Status: http.StatusNotFound}
+	return &Error{Code: responses.ErrCodeNotFound, Message: fmt.Sprintf("%s not found", resource), Status: http.StatusNotFound}
 }
 
 func ErrConflict(message string) *Error {
-	return &Error{Code: responses.ErrConflict, Message: message, Status: http.StatusConflict}
+	return &Error{Code: responses.ErrCodeConflict, Message: message, Status: http.StatusConflict}
 }
 
 func ErrInternal(err error) *Error {
-	return &Error{Code: responses.ErrInternalServer, Message: "an internal error occurred", Status: http.StatusInternalServerError, Internal: err}
+	return &Error{Code: responses.ErrCodeInternalServer, Message: "an internal error occurred", Status: http.StatusInternalServerError, Internal: err}
 }
 
 func ErrInternalWithMessage(message string, err error) *Error {
-	return &Error{Code: responses.ErrInternalServer, Message: message, Status: http.StatusInternalServerError, Internal: err}
+	return &Error{Code: responses.ErrCodeInternalServer, Message: message, Status: http.StatusInternalServerError, Internal: err}
 }
 
 func ErrTooManyRequests(retryAfter int) *Error {
 	return &Error{
-		Code: responses.ErrTooManyRequests, Message: "rate limit exceeded", Status: http.StatusTooManyRequests,
+		Code: responses.ErrCodeTooManyRequests, Message: "rate limit exceeded", Status: http.StatusTooManyRequests,
 		Details: map[string]int{"retry_after_seconds": retryAfter},
 	}
 }
 
 func ErrServiceUnavailable(message string) *Error {
-	return &Error{Code: responses.ErrServiceUnavailable, Message: message, Status: http.StatusServiceUnavailable}
+	return &Error{Code: responses.ErrCodeServiceUnavailable, Message: message, Status: http.StatusServiceUnavailable}
 }
 
 // ToError converts any error to *Error.

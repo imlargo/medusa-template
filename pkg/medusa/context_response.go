@@ -56,23 +56,23 @@ func (c *Context) Error(err error) {
 	
 	// Map to responses package error codes
 	switch appErr.Code {
-	case responses.ErrBadRequest:
+	case responses.ErrCodeBadRequest:
 		responses.ErrorBadRequest(c.Context, appErr.Message)
-	case responses.ErrBindJson:
-		responses.WriteErrorResponse(c.Context, http.StatusBadRequest, responses.ErrBindJson, appErr.Message, appErr.Details)
-	case responses.ErrUnauthorized:
+	case responses.ErrCodeBindJson:
+		responses.WriteErrorResponse(c.Context, http.StatusBadRequest, responses.ErrCodeBindJson, appErr.Message, appErr.Details)
+	case responses.ErrCodeUnauthorized:
 		responses.ErrorUnauthorized(c.Context, appErr.Message)
-	case responses.ErrForbidden:
+	case responses.ErrCodeForbidden:
 		responses.ErrorForbidden(c.Context, appErr.Message)
-	case responses.ErrNotFound:
-		responses.WriteErrorResponse(c.Context, http.StatusNotFound, responses.ErrNotFound, appErr.Message, appErr.Details)
-	case responses.ErrConflict:
+	case responses.ErrCodeNotFound:
+		responses.WriteErrorResponse(c.Context, http.StatusNotFound, responses.ErrCodeNotFound, appErr.Message, appErr.Details)
+	case responses.ErrCodeConflict:
 		responses.ErrorConflict(c.Context, appErr.Message)
-	case responses.ErrTooManyRequests:
+	case responses.ErrCodeTooManyRequests:
 		responses.ErrorTooManyRequests(c.Context, appErr.Message)
-	case responses.ErrServiceUnavailable:
+	case responses.ErrCodeServiceUnavailable:
 		responses.ErrorServiceUnavailable(c.Context, appErr.Message)
-	case responses.ErrInternalServer:
+	case responses.ErrCodeInternalServer:
 		if appErr.Internal != nil {
 			responses.ErrorInternalServer(c.Context, appErr.Details)
 		} else {
