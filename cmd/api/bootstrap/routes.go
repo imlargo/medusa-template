@@ -9,6 +9,7 @@ import (
 // SetupRoutes configures all application routes.
 func SetupRoutes(router *gin.Engine, c *Container) {
 	// Global middleware
+	router.Use(middleware.RequestIDMiddleware())
 	router.Use(middleware.NewCorsMiddleware(c.Config.Server.Host, []string{}))
 
 	// Docs
@@ -16,6 +17,7 @@ func SetupRoutes(router *gin.Engine, c *Container) {
 
 	// Health (public)
 	router.GET("/health", c.Handlers.Health.Health)
+	router.GET("/ready", c.Handlers.Health.Ready)
 
 	// API v1
 	v1 := router.Group("/v1")

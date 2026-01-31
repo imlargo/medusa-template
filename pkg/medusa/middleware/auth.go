@@ -46,7 +46,8 @@ func NewAuthTokenMiddleware(jwtAuthenticator *jwt.JWT) gin.HandlerFunc {
 			return
 		}
 
-		medusa.SetUserID(ctx, tokenData.UserID)
+		medusaCtx := medusa.NewContext(ctx)
+		medusaCtx.SetUserID(tokenData.UserID)
 
 		ctx.Next()
 	}
