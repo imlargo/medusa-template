@@ -4,15 +4,17 @@ package medusa
 import (
 	"fmt"
 	"net/http"
+
+	"github.com/imlargo/medusa/pkg/medusa/core/responses"
 )
 
 // Error represents an application error with HTTP context.
 type Error struct {
-	Code     string      `json:"code"`
-	Message  string      `json:"message"`
-	Status   int         `json:"-"`
-	Details  interface{} `json:"details,omitempty"`
-	Internal error       `json:"-"`
+	Code     responses.ErrorCode `json:"code"`
+	Message  string              `json:"message"`
+	Status   int                 `json:"-"`
+	Details  interface{}         `json:"details,omitempty"`
+	Internal error               `json:"-"`
 }
 
 func (e *Error) Error() string {
@@ -29,46 +31,46 @@ func (e *Error) Unwrap() error {
 // Error constructors
 
 func ErrBadRequest(message string) *Error {
-	return &Error{Code: "BAD_REQUEST", Message: message, Status: http.StatusBadRequest}
+	return &Error{Code: responses.ErrBadRequest, Message: message, Status: http.StatusBadRequest}
 }
 
 func ErrValidation(message string, details interface{}) *Error {
-	return &Error{Code: "BIND_JSON", Message: message, Status: http.StatusBadRequest, Details: details}
+	return &Error{Code: responses.ErrBindJson, Message: message, Status: http.StatusBadRequest, Details: details}
 }
 
 func ErrUnauthorized(message string) *Error {
-	return &Error{Code: "UNAUTHORIZED", Message: message, Status: http.StatusUnauthorized}
+	return &Error{Code: responses.ErrUnauthorized, Message: message, Status: http.StatusUnauthorized}
 }
 
 func ErrForbidden(message string) *Error {
-	return &Error{Code: "FORBIDDEN", Message: message, Status: http.StatusForbidden}
+	return &Error{Code: responses.ErrForbidden, Message: message, Status: http.StatusForbidden}
 }
 
 func ErrNotFound(resource string) *Error {
-	return &Error{Code: "NOT_FOUND", Message: fmt.Sprintf("%s not found", resource), Status: http.StatusNotFound}
+	return &Error{Code: responses.ErrNotFound, Message: fmt.Sprintf("%s not found", resource), Status: http.StatusNotFound}
 }
 
 func ErrConflict(message string) *Error {
-	return &Error{Code: "CONFLICT", Message: message, Status: http.StatusConflict}
+	return &Error{Code: responses.ErrConflict, Message: message, Status: http.StatusConflict}
 }
 
 func ErrInternal(err error) *Error {
-	return &Error{Code: "INTERNAL_SERVER_ERROR", Message: "an internal error occurred", Status: http.StatusInternalServerError, Internal: err}
+	return &Error{Code: responses.ErrInternalServer, Message: "an internal error occurred", Status: http.StatusInternalServerError, Internal: err}
 }
 
 func ErrInternalWithMessage(message string, err error) *Error {
-	return &Error{Code: "INTERNAL_SERVER_ERROR", Message: message, Status: http.StatusInternalServerError, Internal: err}
+	return &Error{Code: responses.ErrInternalServer, Message: message, Status: http.StatusInternalServerError, Internal: err}
 }
 
 func ErrTooManyRequests(retryAfter int) *Error {
 	return &Error{
-		Code: "TOO_MANY_REQUESTS", Message: "rate limit exceeded", Status: http.StatusTooManyRequests,
+		Code: responses.ErrTooManyRequests, Message: "rate limit exceeded", Status: http.StatusTooManyRequests,
 		Details: map[string]int{"retry_after_seconds": retryAfter},
 	}
 }
 
 func ErrServiceUnavailable(message string) *Error {
-	return &Error{Code: "SERVICE_UNAVAILABLE", Message: message, Status: http.StatusServiceUnavailable}
+	return &Error{Code: responses.ErrServiceUnavailable, Message: message, Status: http.StatusServiceUnavailable}
 }
 
 // ToError converts any error to *Error.

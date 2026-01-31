@@ -36,6 +36,18 @@ const (
 	// ErrUnauthorized indicates authentication is required or has failed.
 	// Returns HTTP 401 status code.
 	ErrUnauthorized ErrorCode = "UNAUTHORIZED"
+
+	// ErrForbidden indicates the client does not have permission to access the resource.
+	// Returns HTTP 403 status code.
+	ErrForbidden ErrorCode = "FORBIDDEN"
+
+	// ErrConflict indicates a conflict with the current state of the resource.
+	// Returns HTTP 409 status code. Typically used for duplicate entries.
+	ErrConflict ErrorCode = "CONFLICT"
+
+	// ErrServiceUnavailable indicates the service is temporarily unavailable.
+	// Returns HTTP 503 status code. Used for maintenance or temporary outages.
+	ErrServiceUnavailable ErrorCode = "SERVICE_UNAVAILABLE"
 )
 
 // ErrorResponse represents a standardized error HTTP response.
@@ -145,6 +157,42 @@ func ErrorTooManyRequests(c *gin.Context, message string) {
 //	}
 func ErrorUnauthorized(c *gin.Context, message string) {
 	WriteErrorResponse(c, http.StatusUnauthorized, ErrUnauthorized, message, nil)
+}
+
+// ErrorForbidden writes a 403 Forbidden response.
+// Use this when the authenticated user does not have permission to access the resource.
+//
+// Example:
+//
+//	if !user.IsAdmin() {
+//	    responses.ErrorForbidden(c, "Admin access required")
+//	    return
+//	}
+func ErrorForbidden(c *gin.Context, message string) {
+	WriteErrorResponse(c, http.StatusForbidden, ErrForbidden, message, nil)
+}
+
+// ErrorConflict writes a 409 Conflict response.
+// Use this when there is a conflict with the current state of the resource.
+//
+// Example:
+//
+//	if existingUser != nil {
+//	    responses.ErrorConflict(c, "User with this email already exists")
+//	    return
+//	}
+func ErrorConflict(c *gin.Context, message string) {
+	WriteErrorResponse(c, http.StatusConflict, ErrConflict, message, nil)
+}
+
+// ErrorServiceUnavailable writes a 503 Service Unavailable response.
+// Use this when the service is temporarily unavailable due to maintenance or overload.
+//
+// Example:
+//
+//	responses.ErrorServiceUnavailable(c, "Service is under maintenance")
+func ErrorServiceUnavailable(c *gin.Context, message string) {
+	WriteErrorResponse(c, http.StatusServiceUnavailable, ErrServiceUnavailable, message, nil)
 }
 
 // WriteErrorResponse writes an error JSON response with the given parameters.

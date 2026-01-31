@@ -56,27 +56,23 @@ func (c *Context) Error(err error) {
 	
 	// Map to responses package error codes
 	switch appErr.Code {
-	case "BAD_REQUEST":
+	case responses.ErrBadRequest:
 		responses.ErrorBadRequest(c.Context, appErr.Message)
-	case "BIND_JSON":
+	case responses.ErrBindJson:
 		responses.WriteErrorResponse(c.Context, http.StatusBadRequest, responses.ErrBindJson, appErr.Message, appErr.Details)
-	case "UNAUTHORIZED":
+	case responses.ErrUnauthorized:
 		responses.ErrorUnauthorized(c.Context, appErr.Message)
-	case "FORBIDDEN":
-		// Note: responses package doesn't have a FORBIDDEN error constant, using BAD_REQUEST code with 403 status
-		// This means the logical error code ("BAD_REQUEST") does not match the HTTP status (403) for this case.
-		responses.WriteErrorResponse(c.Context, http.StatusForbidden, responses.ErrBadRequest, appErr.Message, appErr.Details)
-	case "NOT_FOUND":
+	case responses.ErrForbidden:
+		responses.ErrorForbidden(c.Context, appErr.Message)
+	case responses.ErrNotFound:
 		responses.WriteErrorResponse(c.Context, http.StatusNotFound, responses.ErrNotFound, appErr.Message, appErr.Details)
-	case "CONFLICT":
-		// Note: responses package doesn't have a CONFLICT error constant, using BAD_REQUEST code with 409 status
-		// This means the logical error code ("BAD_REQUEST") does not match the HTTP status (409) for this case.
-		responses.WriteErrorResponse(c.Context, http.StatusConflict, responses.ErrBadRequest, appErr.Message, appErr.Details)
-	case "TOO_MANY_REQUESTS":
+	case responses.ErrConflict:
+		responses.ErrorConflict(c.Context, appErr.Message)
+	case responses.ErrTooManyRequests:
 		responses.ErrorTooManyRequests(c.Context, appErr.Message)
-	case "SERVICE_UNAVAILABLE":
-		responses.ErrorInternalServerWithMessage(c.Context, appErr.Message, nil)
-	case "INTERNAL_SERVER_ERROR":
+	case responses.ErrServiceUnavailable:
+		responses.ErrorServiceUnavailable(c.Context, appErr.Message)
+	case responses.ErrInternalServer:
 		if appErr.Internal != nil {
 			responses.ErrorInternalServer(c.Context, appErr.Details)
 		} else {
