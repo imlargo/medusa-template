@@ -1,4 +1,4 @@
-package medusa
+package context
 
 import (
 	"math"
@@ -6,6 +6,28 @@ import (
 
 	"github.com/imlargo/medusa/pkg/medusa/core/responses"
 )
+
+// ErrorConverter is an interface for converting errors.
+// This avoids circular dependencies with the medusa package.
+type ErrorConverter interface {
+	ToError(err error) ConvertedError
+}
+
+// ConvertedError represents a converted error with all necessary fields.
+type ConvertedError struct {
+	Code     responses.ErrorCode
+	Message  string
+	Details  interface{}
+	Internal error
+}
+
+// defaultErrorConverter is set by the medusa package to avoid circular imports.
+var defaultErrorConverter ErrorConverter
+
+// SetErrorConverter sets the error converter for the context package.
+func SetErrorConverter(ec ErrorConverter) {
+	defaultErrorConverter = ec
+}
 
 // PagedResponse is the paginated response format.
 type PagedResponse[T any] struct {
@@ -52,7 +74,13 @@ func (c *Context) NoContent() {
 
 // Error sends an error response.
 func (c *Context) Error(err error) {
-	appErr := ToError(err)
+	if defaultErrorConverter == nil {
+		// Fallback if error converter not set
+		responses.ErrorInternalServer(c.Context, nil)
+		return
+	}
+	
+	appErr := defaultErrorConverter.ToError(err)
 	
 	// Map to responses package error codes
 	switch appErr.Code {

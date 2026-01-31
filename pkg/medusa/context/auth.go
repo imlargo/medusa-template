@@ -1,5 +1,5 @@
 // pkg/medusa/context_auth.go
-package medusa
+package context
 
 // UserID returns the authenticated user's ID.
 func (c *Context) UserID() (uint, bool) {

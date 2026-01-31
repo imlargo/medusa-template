@@ -1,5 +1,5 @@
 // pkg/medusa/context_request.go
-package medusa
+package context
 
 import (
 	"reflect"
@@ -8,6 +8,22 @@ import (
 
 	"github.com/go-playground/validator/v10"
 )
+
+// ErrorConstructor is an interface for creating errors.
+// This avoids circular dependencies with the medusa package.
+type ErrorConstructor interface {
+	Validation(message string, details interface{}) error
+	BadRequest(message string) error
+}
+
+// defaultErrorConstructor is set by the medusa package to avoid circular imports.
+var defaultErrorConstructor ErrorConstructor
+
+// SetErrorConstructor sets the error constructor for the context package.
+// This is called by the medusa package during initialization.
+func SetErrorConstructor(ec ErrorConstructor) {
+	defaultErrorConstructor = ec
+}
 
 // Bind binds and validates the request body to the given struct.
 func (c *Context) Bind(obj interface{}) error {
@@ -33,16 +49,19 @@ func (c *Context) BindURI(obj interface{}) error {
 	return nil
 }
 
-func (c *Context) formatValidationError(err error) *Error {
+func (c *Context) formatValidationError(err error) error {
+	if defaultErrorConstructor == nil {
+		return err
+	}
 	if validationErrors, ok := err.(validator.ValidationErrors); ok {
 		details := make(map[string]string)
 		for _, e := range validationErrors {
 			field := strings.ToLower(e.Field())
 			details[field] = formatValidationMessage(e)
 		}
-		return ErrValidation("validation failed", details)
+		return defaultErrorConstructor.Validation("validation failed", details)
 	}
-	return ErrBadRequest("invalid request body")
+	return defaultErrorConstructor.BadRequest("invalid request body")
 }
 
 func formatValidationMessage(e validator.FieldError) string {
@@ -82,11 +101,17 @@ func formatValidationMessage(e validator.FieldError) string {
 func (c *Context) ParamID(name string) (uint, error) {
 	param := c.Param(name)
 	if param == "" {
-		return 0, ErrBadRequest(name + " is required")
+		if defaultErrorConstructor != nil {
+			return 0, defaultErrorConstructor.BadRequest(name + " is required")
+		}
+		return 0, nil
 	}
 	id, err := strconv.ParseUint(param, 10, 64)
 	if err != nil {
-		return 0, ErrBadRequest("invalid " + name)
+		if defaultErrorConstructor != nil {
+			return 0, defaultErrorConstructor.BadRequest("invalid " + name)
+		}
+		return 0, err
 	}
 	return uint(id), nil
 }

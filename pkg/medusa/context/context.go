@@ -1,7 +1,7 @@
-package medusa
+package context
 
 import (
-	"context"
+	stdcontext "context"
 
 	"github.com/gin-gonic/gin"
 )
@@ -23,7 +23,7 @@ func NewContext(c *gin.Context) *Context {
 }
 
 // Ctx returns the standard library context for passing to services.
-func (c *Context) Ctx() context.Context {
+func (c *Context) Ctx() stdcontext.Context {
 	return c.Request.Context()
 }
 
