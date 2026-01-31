@@ -58,7 +58,7 @@ func (c *Context) Error(err error) {
 	switch appErr.Code {
 	case "BAD_REQUEST":
 		responses.ErrorBadRequest(c.Context, appErr.Message)
-	case "VALIDATION_ERROR":
+	case "BIND_JSON":
 		responses.WriteErrorResponse(c.Context, http.StatusBadRequest, responses.ErrBindJson, appErr.Message, appErr.Details)
 	case "UNAUTHORIZED":
 		responses.ErrorUnauthorized(c.Context, appErr.Message)
@@ -74,6 +74,12 @@ func (c *Context) Error(err error) {
 		responses.ErrorTooManyRequests(c.Context, appErr.Message)
 	case "SERVICE_UNAVAILABLE":
 		responses.ErrorInternalServerWithMessage(c.Context, appErr.Message, nil)
+	case "INTERNAL_SERVER_ERROR":
+		if appErr.Internal != nil {
+			responses.ErrorInternalServer(c.Context, appErr.Details)
+		} else {
+			responses.ErrorInternalServerWithMessage(c.Context, appErr.Message, appErr.Details)
+		}
 	default:
 		if appErr.Internal != nil {
 			responses.ErrorInternalServer(c.Context, appErr.Details)

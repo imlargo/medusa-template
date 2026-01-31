@@ -33,7 +33,7 @@ func ErrBadRequest(message string) *Error {
 }
 
 func ErrValidation(message string, details interface{}) *Error {
-	return &Error{Code: "VALIDATION_ERROR", Message: message, Status: http.StatusBadRequest, Details: details}
+	return &Error{Code: "BIND_JSON", Message: message, Status: http.StatusBadRequest, Details: details}
 }
 
 func ErrUnauthorized(message string) *Error {
@@ -53,11 +53,11 @@ func ErrConflict(message string) *Error {
 }
 
 func ErrInternal(err error) *Error {
-	return &Error{Code: "INTERNAL_ERROR", Message: "an internal error occurred", Status: http.StatusInternalServerError, Internal: err}
+	return &Error{Code: "INTERNAL_SERVER_ERROR", Message: "an internal error occurred", Status: http.StatusInternalServerError, Internal: err}
 }
 
 func ErrInternalWithMessage(message string, err error) *Error {
-	return &Error{Code: "INTERNAL_ERROR", Message: message, Status: http.StatusInternalServerError, Internal: err}
+	return &Error{Code: "INTERNAL_SERVER_ERROR", Message: message, Status: http.StatusInternalServerError, Internal: err}
 }
 
 func ErrTooManyRequests(retryAfter int) *Error {

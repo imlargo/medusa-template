@@ -10,7 +10,6 @@ import (
 func SetupRoutes(router *gin.Engine, c *Container) {
 	// Global middleware
 	router.Use(middleware.RequestIDMiddleware())
-	router.Use(middleware.RecoveryMiddleware())
 	router.Use(middleware.NewCorsMiddleware(c.Config.Server.Host, []string{}))
 
 	// Docs

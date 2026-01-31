@@ -1,7 +1,6 @@
 package bootstrap
 
 import (
-	"context"
 	"fmt"
 	"time"
 
@@ -172,21 +171,7 @@ func (c *Container) buildHealthService() *health.Service {
 		svc.RegisterChecker(health.NewRedisChecker(c.RedisClient))
 	}
 
-	// Register storage checker if available
-	if c.Storage != nil {
-		svc.RegisterChecker(health.NewGenericChecker("storage", func(ctx context.Context) error {
-			// Check if storage is configured by attempting a basic operation
-			// This respects the context cancellation
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			default:
-				// Storage is considered healthy if it's initialized
-				// Real implementations could add actual checks like listing buckets
-				return nil
-			}
-		}))
-	}
+	// Note: Storage health is validated at initialization, no separate check needed
 
 	return svc
 }

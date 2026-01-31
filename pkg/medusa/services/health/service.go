@@ -42,37 +42,24 @@ func (s *Service) Check(ctx context.Context) HealthStatus {
 	checkCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
-	results := make([]CheckResult, len(checkers))
+	results := make([]CheckResult, 0, len(checkers))
 	allHealthy := true
 
-	var wg sync.WaitGroup
-	var mu sync.Mutex
+	// Execute checks synchronously for easier debugging
+	for _, checker := range checkers {
+		result := CheckResult{
+			Name:   checker.Name(),
+			Status: "healthy",
+		}
 
-	for i, checker := range checkers {
-		wg.Add(1)
-		go func(index int, chk Checker) {
-			defer wg.Done()
-			
-			result := CheckResult{
-				Name:   chk.Name(),
-				Status: "healthy",
-			}
-			
-			if err := chk.Check(checkCtx); err != nil {
-				result.Status = "unhealthy"
-				result.Message = err.Error()
-			}
-			
-			mu.Lock()
-			if result.Status == "unhealthy" {
-				allHealthy = false
-			}
-			results[index] = result
-			mu.Unlock()
-		}(i, checker)
+		if err := checker.Check(checkCtx); err != nil {
+			result.Status = "unhealthy"
+			result.Message = err.Error()
+			allHealthy = false
+		}
+
+		results = append(results, result)
 	}
-
-	wg.Wait()
 
 	status := "healthy"
 	if !allHealthy {
