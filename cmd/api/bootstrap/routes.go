@@ -9,13 +9,17 @@ import (
 // SetupRoutes configures all application routes.
 func SetupRoutes(router *gin.Engine, c *Container) {
 	// Global middleware
+	router.Use(middleware.NewRequestIDMiddleware())
+	router.Use(middleware.NewContextMiddleware(c.Logger))
 	router.Use(middleware.NewCorsMiddleware(c.Config.Server.Host, []string{}))
 
 	// Docs
 	medusadocs.RegisterDocs(router, c.Config.Server.Host, c.Config.Server.Port)
 
-	// Health (public)
+	// Health endpoints (public)
 	router.GET("/health", c.Handlers.Health.Health)
+	router.GET("/health/live", c.Handlers.Health.Liveness)
+	router.GET("/health/ready", c.Handlers.Health.Readiness)
 
 	// API v1
 	v1 := router.Group("/v1")

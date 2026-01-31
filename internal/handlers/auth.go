@@ -38,7 +38,7 @@ func NewAuthHandler(handler *handler.Handler, authService services.AuthService) 
 func (a *AuthHandler) LoginWithPassword(c *gin.Context) {
 	var payload dto.LoginWithPassword
 	if err := c.ShouldBindJSON(&payload); err != nil {
-		responses.ErrorBindJson(c, err)
+		responses.ErrorValidation(c, err)
 		return
 	}
 
@@ -65,7 +65,7 @@ func (a *AuthHandler) LoginWithPassword(c *gin.Context) {
 func (a *AuthHandler) Register(c *gin.Context) {
 	var payload dto.RegisterUser
 	if err := c.ShouldBindJSON(&payload); err != nil {
-		responses.ErrorBindJson(c, err)
+		responses.ErrorValidation(c, err)
 		return
 	}
 

@@ -9,6 +9,7 @@ import (
 	"github.com/imlargo/medusa/internal/services"
 	"github.com/imlargo/medusa/internal/store"
 	"github.com/imlargo/medusa/pkg/medusa/core/handler"
+	"github.com/imlargo/medusa/pkg/medusa/core/health"
 	"github.com/imlargo/medusa/pkg/medusa/core/jwt"
 	"github.com/imlargo/medusa/pkg/medusa/core/logger"
 	"github.com/imlargo/medusa/pkg/medusa/core/metrics"
@@ -17,6 +18,8 @@ import (
 	"github.com/imlargo/medusa/pkg/medusa/core/service"
 	"github.com/imlargo/medusa/pkg/medusa/services/cache"
 	"github.com/imlargo/medusa/pkg/medusa/services/storage"
+	"github.com/redis/go-redis/v9"
+	"gorm.io/gorm"
 )
 
 // Container holds all application dependencies.
@@ -31,6 +34,13 @@ type Container struct {
 	Storage     storage.FileStorage // nil if Storage not configured
 	Metrics     metrics.MetricsService
 	RateLimiter ratelimiter.RateLimiter // nil if disabled
+
+	// Database & Redis clients (for health checks)
+	DB          *gorm.DB
+	RedisClient *redis.Client
+
+	// Health service
+	HealthService *health.Service
 
 	// Application layers
 	Services *Services
@@ -93,6 +103,7 @@ func NewContainer(cfg *config.Config, opts Options) (*Container, error) {
 	if err != nil {
 		return nil, fmt.Errorf("database: %w", err)
 	}
+	c.DB = db
 	medusaStore := repository.NewStore(db, log)
 	c.Store = store.NewStore(medusaStore)
 
@@ -107,6 +118,7 @@ func NewContainer(cfg *config.Config, opts Options) (*Container, error) {
 		if err != nil {
 			return nil, fmt.Errorf("redis: %w", err)
 		}
+		c.RedisClient = redisClient
 		c.Cache = cache.NewRedisCache(redisClient)
 		log.Info("Redis initialized")
 	}
@@ -135,6 +147,9 @@ func NewContainer(cfg *config.Config, opts Options) (*Container, error) {
 		log.Info("Rate limiter enabled")
 	}
 
+	// === Health Service ===
+	c.HealthService = c.buildHealthService()
+
 	// === Services ===
 	c.Services = c.buildServices()
 
@@ -142,6 +157,22 @@ func NewContainer(cfg *config.Config, opts Options) (*Container, error) {
 	c.Handlers = c.buildHandlers()
 
 	return c, nil
+}
+
+func (c *Container) buildHealthService() *health.Service {
+	var checkers []health.Checker
+
+	// Always add database checker
+	if c.DB != nil {
+		checkers = append(checkers, health.NewDatabaseChecker(c.DB))
+	}
+
+	// Add Redis checker if available
+	if c.RedisClient != nil {
+		checkers = append(checkers, health.NewRedisChecker(c.RedisClient))
+	}
+
+	return health.NewService(checkers...)
 }
 
 func (c *Container) buildServices() *Services {
@@ -163,7 +194,7 @@ func (c *Container) buildHandlers() *Handlers {
 	c.Services.Auth = services.NewAuthService(serviceBase, c.Services.User, c.JWT)
 
 	return &Handlers{
-		Health: handler.NewHealthHandler(baseHandler),
+		Health: handler.NewHealthHandler(baseHandler, c.HealthService),
 		Auth:   handlers.NewAuthHandler(baseHandler, c.Services.Auth),
 	}
 }
