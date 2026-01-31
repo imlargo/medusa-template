@@ -101,12 +101,12 @@ func (c *Context) GetParamUint(key string) (uint, error) {
 	if param == "" {
 		return 0, fmt.Errorf("parameter '%s' not found", key)
 	}
-	
+
 	value, err := strconv.ParseUint(param, 10, 64)
 	if err != nil {
 		return 0, fmt.Errorf("parameter '%s' must be a positive integer", key)
 	}
-	
+
 	return uint(value), nil
 }
 
@@ -173,7 +173,7 @@ func (c *Context) GetUserID() (uint, error) {
 	if !exists {
 		return 0, ErrUserNotAuthenticated
 	}
-	
+
 	switch v := userID.(type) {
 	case uint:
 		return v, nil

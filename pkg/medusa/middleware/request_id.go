@@ -12,14 +12,14 @@ const RequestIDHeader = "X-Request-ID"
 func NewRequestIDMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		requestID := c.GetHeader(RequestIDHeader)
-		
+
 		if requestID == "" {
 			requestID = uuid.New().String()
 		}
-		
+
 		c.Set(medusa.RequestIDContextKey, requestID)
 		c.Header(RequestIDHeader, requestID)
-		
+
 		c.Next()
 	}
 }

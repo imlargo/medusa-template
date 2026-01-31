@@ -30,9 +30,9 @@ func (h *HealthHandler) Health(c *gin.Context) {
 
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 	defer cancel()
-	
+
 	checks := h.healthService.CheckAll(ctx)
-	
+
 	allHealthy := true
 	for _, check := range checks {
 		if check.Status == health.StatusUnhealthy {
@@ -40,12 +40,12 @@ func (h *HealthHandler) Health(c *gin.Context) {
 			break
 		}
 	}
-	
+
 	status := 200
 	if !allHealthy {
 		status = 503
 	}
-	
+
 	c.JSON(status, gin.H{
 		"status": "healthy",
 		"checks": checks,
@@ -65,11 +65,10 @@ func (h *HealthHandler) Readiness(c *gin.Context) {
 
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 	defer cancel()
-	
+
 	if h.healthService.IsHealthy(ctx) {
 		responses.SuccessOK(c, gin.H{"status": "ready"})
 	} else {
 		c.JSON(503, gin.H{"status": "not ready"})
 	}
 }
-

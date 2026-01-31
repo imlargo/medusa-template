@@ -14,17 +14,17 @@ func ErrorValidation(c *gin.Context, err error) {
 	var validationErrors validator.ValidationErrors
 	if errors.As(err, &validationErrors) {
 		details := make(map[string][]string)
-		
+
 		for _, err := range validationErrors {
 			field := err.Field()
 			message := formatValidationMessage(err)
 			details[field] = append(details[field], message)
 		}
-		
+
 		WriteErrorResponse(c, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "Request validation failed", details)
 		return
 	}
-	
+
 	// Si no es error de validación, es error de binding (JSON malformado)
 	ErrorBadRequest(c, "Invalid request format")
 }

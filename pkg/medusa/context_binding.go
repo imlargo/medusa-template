@@ -32,7 +32,7 @@ func (c *Context) handleBindError(err error) {
 		responses.ErrorValidation(c.Context, err)
 		return
 	}
-	
+
 	responses.WriteErrorResponse(
 		c.Context,
 		http.StatusBadRequest,
