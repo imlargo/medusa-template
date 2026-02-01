@@ -1,0 +1,20 @@
+package middleware
+
+import (
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	"github.com/imlargo/medusa/pkg/medusa/context"
+)
+
+// CreateRequestIDMiddleware adds a unique request ID to each request.
+func CreateRequestIDMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		requestID := c.GetHeader("X-Request-ID")
+		if requestID == "" {
+			requestID = uuid.New().String()
+		}
+		c.Set(context.RequestIDContextKey, requestID)
+		c.Header("X-Request-ID", requestID)
+		c.Next()
+	}
+}

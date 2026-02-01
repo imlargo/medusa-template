@@ -64,7 +64,7 @@ type redisCache struct {
 //	    DB:       0,  // default DB
 //	})
 //	cache := cache.NewRedisCache(client)
-func NewRedisCache(client *redis.Client) Service {
+func NewRedisCache(client *redis.Client) Cache {
 	return &redisCache{
 		client: client,
 	}

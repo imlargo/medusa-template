@@ -231,33 +231,52 @@ const docTemplate = `{
         "github_com_imlargo_medusa_pkg_medusa_core_responses.ErrorCode": {
             "type": "string",
             "enum": [
-                "BIND_JSON",
-                "NOT_FOUND",
-                "INTERNAL_SERVER_ERROR",
                 "BAD_REQUEST",
+                "BIND_JSON",
+                "UNAUTHORIZED",
+                "FORBIDDEN",
+                "NOT_FOUND",
+                "CONFLICT",
                 "TOO_MANY_REQUESTS",
-                "UNAUTHORIZED"
+                "INTERNAL_SERVER_ERROR",
+                "SERVICE_UNAVAILABLE"
             ],
             "x-enum-varnames": [
-                "ErrBindJson",
-                "ErrNotFound",
-                "ErrInternalServer",
-                "ErrBadRequest",
-                "ErrToManyRequests",
-                "ErrUnauthorized"
+                "ErrCodeBadRequest",
+                "ErrCodeBindJson",
+                "ErrCodeUnauthorized",
+                "ErrCodeForbidden",
+                "ErrCodeNotFound",
+                "ErrCodeConflict",
+                "ErrCodeTooManyRequests",
+                "ErrCodeInternalServer",
+                "ErrCodeServiceUnavailable"
             ]
         },
         "github_com_imlargo_medusa_pkg_medusa_core_responses.ErrorResponse": {
             "type": "object",
             "properties": {
                 "code": {
-                    "$ref": "#/definitions/github_com_imlargo_medusa_pkg_medusa_core_responses.ErrorCode"
+                    "description": "Machine-readable error code",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_imlargo_medusa_pkg_medusa_core_responses.ErrorCode"
+                        }
+                    ]
                 },
-                "details": {},
+                "details": {
+                    "description": "Optional error details (e.g., validation errors)"
+                },
                 "error": {
+                    "description": "Human-readable error message",
+                    "type": "string"
+                },
+                "request_id": {
+                    "description": "Request ID for tracing (if available)",
                     "type": "string"
                 },
                 "status": {
+                    "description": "HTTP status code (e.g., 400, 404, 500)",
                     "type": "integer"
                 }
             }

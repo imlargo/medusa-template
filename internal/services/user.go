@@ -11,10 +11,10 @@ import (
 )
 
 type UserService interface {
-	CreateUser(user *dto.RegisterUser) (*models.User, error)
-	DeleteUser(userID uint) error
-	GetUserByID(userID uint) (*models.User, error)
-	GetUserByEmail(email string) (*models.User, error)
+	CreateUser(ctx context.Context, user *dto.RegisterUser) (*models.User, error)
+	DeleteUser(ctx context.Context, userID uint) error
+	GetUserByID(ctx context.Context, userID uint) (*models.User, error)
+	GetUserByEmail(ctx context.Context, email string) (*models.User, error)
 }
 
 type userServiceImpl struct {
@@ -27,7 +27,7 @@ func NewUserService(container *Service) UserService {
 	}
 }
 
-func (s *userServiceImpl) CreateUser(registerUser *dto.RegisterUser) (*models.User, error) {
+func (s *userServiceImpl) CreateUser(ctx context.Context, registerUser *dto.RegisterUser) (*models.User, error) {
 
 	registerUser.Email = strings.ToLower(registerUser.Email)
 
@@ -37,7 +37,7 @@ func (s *userServiceImpl) CreateUser(registerUser *dto.RegisterUser) (*models.Us
 		Password: registerUser.Password,
 	}
 
-	existingUser, _ := s.store.Users.GetByEmail(context.Background(), user.Email)
+	existingUser, _ := s.store.Users.GetByEmail(ctx, user.Email)
 	if existingUser != nil {
 		return nil, errors.New("user with this email already exists")
 	}
@@ -49,21 +49,21 @@ func (s *userServiceImpl) CreateUser(registerUser *dto.RegisterUser) (*models.Us
 	}
 	user.Password = string(hashedPassword)
 
-	if err := s.store.Users.Create(context.Background(), user); err != nil {
+	if err := s.store.Users.Create(ctx, user); err != nil {
 		return nil, err
 	}
 
 	return user, nil
 }
 
-func (s *userServiceImpl) DeleteUser(userID uint) error {
-	return nil
+func (s *userServiceImpl) DeleteUser(ctx context.Context, userID uint) error {
+	return s.store.Users.Delete(ctx, userID)
 }
 
-func (s *userServiceImpl) GetUserByID(userID uint) (*models.User, error) {
-	return s.store.Users.Get(context.Background(), userID)
+func (s *userServiceImpl) GetUserByID(ctx context.Context, userID uint) (*models.User, error) {
+	return s.store.Users.Get(ctx, userID)
 }
 
-func (s *userServiceImpl) GetUserByEmail(email string) (*models.User, error) {
-	return s.store.Users.GetByEmail(context.Background(), email)
+func (s *userServiceImpl) GetUserByEmail(ctx context.Context, email string) (*models.User, error) {
+	return s.store.Users.GetByEmail(ctx, email)
 }

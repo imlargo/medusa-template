@@ -1,9 +1,26 @@
-// Package medusa provides a batteries-included Go framework for building modern, scalable backends.
-// It includes core components for HTTP servers, authentication, database repositories, caching,
-// storage, messaging, and more.
 package medusa
 
+import (
+	"github.com/imlargo/medusa/pkg/medusa/context"
+)
+
+// Context re-exports from context package for backward compatibility.
+type Context = context.Context
+
+// NewContext re-exports from context package for backward compatibility.
+var NewContext = context.NewContext
+
+// Pagination re-exports from context package for backward compatibility.
+type Pagination = context.Pagination
+
+// Paged re-exports from context package for backward compatibility.
+// Note: This is a generic function and must be used with type parameters, e.g., medusa.Paged[User](...)
+func Paged[T any](c *Context, data []T, page Pagination, totalItems int64) {
+	context.Paged(c, data, page, totalItems)
+}
+
+// Context key constants re-exported for compatibility.
 const (
-	// UserIDContextKey is the key used to store the authenticated user ID in the request context
-	UserIDContextKey = "user_id"
+	UserIDContextKey    = context.UserIDContextKey
+	RequestIDContextKey = context.RequestIDContextKey
 )

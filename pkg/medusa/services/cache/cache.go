@@ -5,8 +5,8 @@ import (
 	"time"
 )
 
-// Service defines the interface for Redis cache operations
-type Service interface {
+// Cache defines the interface for Redis cache operations
+type Cache interface {
 	// Get retrieves a value from cache and deserializes it into dest
 	Get(ctx context.Context, key string, dest interface{}) error
 

@@ -6,41 +6,67 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// requestIDContextKey is the context key for storing the request ID.
+const requestIDContextKey = "medusa_request_id"
+
+// extractRequestID extracts the request ID from the Gin context if available.
+func extractRequestID(c *gin.Context) string {
+	if id, exists := c.Get(requestIDContextKey); exists {
+		if strID, ok := id.(string); ok {
+			return strID
+		}
+	}
+	return ""
+}
+
 // ErrorCode represents a machine-readable error code for API errors.
 // These codes help clients programmatically handle different error scenarios.
+// Error codes should remain stable across API versions for backward compatibility.
 type ErrorCode string
 
 // Standard error codes used throughout the application.
-// These codes should remain stable across API versions for backward compatibility.
 const (
-	// ErrBindJson indicates a JSON binding/validation error.
-	// This typically occurs when request body cannot be parsed or validated.
-	ErrBindJson ErrorCode = "BIND_JSON"
-
-	// ErrNotFound indicates a requested resource was not found.
-	// Returns HTTP 404 status code.
-	ErrNotFound ErrorCode = "NOT_FOUND"
-
-	// ErrInternalServer indicates an unexpected server error.
-	// Returns HTTP 500 status code. Details should not expose sensitive information.
-	ErrInternalServer ErrorCode = "INTERNAL_SERVER_ERROR"
-
-	// ErrBadRequest indicates the request was malformed or contained invalid parameters.
+	// ErrCodeBadRequest indicates the request was malformed or contained invalid parameters.
 	// Returns HTTP 400 status code.
-	ErrBadRequest ErrorCode = "BAD_REQUEST"
+	ErrCodeBadRequest ErrorCode = "BAD_REQUEST"
 
-	// ErrTooManyRequests indicates the client has exceeded the rate limit.
-	// Returns HTTP 429 status code. Response should include retry-after information.
-	ErrTooManyRequests ErrorCode = "TOO_MANY_REQUESTS"
+	// ErrCodeBindJson indicates a JSON binding/validation error.
+	// This typically occurs when request body cannot be parsed or validated.
+	// Returns HTTP 400 status code.
+	ErrCodeBindJson ErrorCode = "BIND_JSON"
 
-	// ErrUnauthorized indicates authentication is required or has failed.
+	// ErrCodeUnauthorized indicates authentication is required or has failed.
 	// Returns HTTP 401 status code.
-	ErrUnauthorized ErrorCode = "UNAUTHORIZED"
+	ErrCodeUnauthorized ErrorCode = "UNAUTHORIZED"
+
+	// ErrCodeForbidden indicates the client does not have permission to access the resource.
+	// Returns HTTP 403 status code.
+	ErrCodeForbidden ErrorCode = "FORBIDDEN"
+
+	// ErrCodeNotFound indicates a requested resource was not found.
+	// Returns HTTP 404 status code.
+	ErrCodeNotFound ErrorCode = "NOT_FOUND"
+
+	// ErrCodeConflict indicates a conflict with the current state of the resource.
+	// Returns HTTP 409 status code. Typically used for duplicate entries.
+	ErrCodeConflict ErrorCode = "CONFLICT"
+
+	// ErrCodeTooManyRequests indicates the client has exceeded the rate limit.
+	// Returns HTTP 429 status code. Response should include retry-after information.
+	ErrCodeTooManyRequests ErrorCode = "TOO_MANY_REQUESTS"
+
+	// ErrCodeInternalServer indicates an unexpected server error.
+	// Returns HTTP 500 status code. Details should not expose sensitive information.
+	ErrCodeInternalServer ErrorCode = "INTERNAL_SERVER_ERROR"
+
+	// ErrCodeServiceUnavailable indicates the service is temporarily unavailable.
+	// Returns HTTP 503 status code. Used for maintenance or temporary outages.
+	ErrCodeServiceUnavailable ErrorCode = "SERVICE_UNAVAILABLE"
 )
 
 // ErrorResponse represents a standardized error HTTP response.
 // It includes the HTTP status code, a machine-readable error code,
-// a human-readable error message, and optional error details.
+// a human-readable error message, optional error details, and request ID for tracing.
 //
 // Error Response Format:
 //
@@ -48,13 +74,15 @@ const (
 //	    "status": 400,
 //	    "code": "BAD_REQUEST",
 //	    "error": "Invalid email format",
-//	    "details": {...}
+//	    "details": {...},
+//	    "request_id": "550e8400-e29b-41d4-a716-446655440000"
 //	}
 type ErrorResponse struct {
-	Status  int         `json:"status"`            // HTTP status code (e.g., 400, 404, 500)
-	Code    ErrorCode   `json:"code"`              // Machine-readable error code
-	Error   string      `json:"error"`             // Human-readable error message
-	Details interface{} `json:"details,omitempty"` // Optional error details (e.g., validation errors)
+	Status    int         `json:"status"`               // HTTP status code (e.g., 400, 404, 500)
+	Code      ErrorCode   `json:"code"`                 // Machine-readable error code
+	Error     string      `json:"error"`                // Human-readable error message
+	Details   interface{} `json:"details,omitempty"`    // Optional error details (e.g., validation errors)
+	RequestID string      `json:"request_id,omitempty"` // Request ID for tracing (if available)
 }
 
 // ErrorBindJson writes a 400 Bad Request response for JSON binding errors.
@@ -68,7 +96,7 @@ type ErrorResponse struct {
 //	    return
 //	}
 func ErrorBindJson(c *gin.Context, err error) {
-	WriteErrorResponse(c, http.StatusBadRequest, ErrBindJson, err.Error(), nil)
+	WriteErrorResponse(c, http.StatusBadRequest, ErrCodeBindJson, err.Error(), nil)
 }
 
 // ErrorNotFound writes a 404 Not Found response for a specific model/resource.
@@ -82,7 +110,7 @@ func ErrorBindJson(c *gin.Context, err error) {
 //	    return
 //	}
 func ErrorNotFound(c *gin.Context, model string) {
-	WriteErrorResponse(c, http.StatusNotFound, ErrNotFound, model+" not found", nil)
+	WriteErrorResponse(c, http.StatusNotFound, ErrCodeNotFound, model+" not found", nil)
 }
 
 // ErrorInternalServer writes a 500 Internal Server Error response.
@@ -96,7 +124,7 @@ func ErrorNotFound(c *gin.Context, model string) {
 //	    return
 //	}
 func ErrorInternalServer(c *gin.Context, details interface{}) {
-	WriteErrorResponse(c, http.StatusInternalServerError, ErrInternalServer, "internal server error", details)
+	WriteErrorResponse(c, http.StatusInternalServerError, ErrCodeInternalServer, "internal server error", details)
 }
 
 // ErrorInternalServerWithMessage writes a 500 Internal Server Error response with a custom message.
@@ -106,7 +134,7 @@ func ErrorInternalServer(c *gin.Context, details interface{}) {
 //
 //	responses.ErrorInternalServerWithMessage(c, "Failed to process payment", nil)
 func ErrorInternalServerWithMessage(c *gin.Context, message string, details interface{}) {
-	WriteErrorResponse(c, http.StatusInternalServerError, ErrInternalServer, message, details)
+	WriteErrorResponse(c, http.StatusInternalServerError, ErrCodeInternalServer, message, details)
 }
 
 // ErrorBadRequest writes a 400 Bad Request response with a custom message.
@@ -119,7 +147,7 @@ func ErrorInternalServerWithMessage(c *gin.Context, message string, details inte
 //	    return
 //	}
 func ErrorBadRequest(c *gin.Context, message string) {
-	WriteErrorResponse(c, http.StatusBadRequest, ErrBadRequest, message, nil)
+	WriteErrorResponse(c, http.StatusBadRequest, ErrCodeBadRequest, message, nil)
 }
 
 // ErrorTooManyRequests writes a 429 Too Many Requests response.
@@ -130,7 +158,7 @@ func ErrorBadRequest(c *gin.Context, message string) {
 //
 //	responses.ErrorTooManyRequests(c, "Rate limit exceeded. Try again in 60 seconds")
 func ErrorTooManyRequests(c *gin.Context, message string) {
-	WriteErrorResponse(c, http.StatusTooManyRequests, ErrTooManyRequests, message, nil)
+	WriteErrorResponse(c, http.StatusTooManyRequests, ErrCodeTooManyRequests, message, nil)
 }
 
 // ErrorUnauthorized writes a 401 Unauthorized response.
@@ -144,7 +172,43 @@ func ErrorTooManyRequests(c *gin.Context, message string) {
 //	    return
 //	}
 func ErrorUnauthorized(c *gin.Context, message string) {
-	WriteErrorResponse(c, http.StatusUnauthorized, ErrUnauthorized, message, nil)
+	WriteErrorResponse(c, http.StatusUnauthorized, ErrCodeUnauthorized, message, nil)
+}
+
+// ErrorForbidden writes a 403 Forbidden response.
+// Use this when the authenticated user does not have permission to access the resource.
+//
+// Example:
+//
+//	if !user.IsAdmin() {
+//	    responses.ErrorForbidden(c, "Admin access required")
+//	    return
+//	}
+func ErrorForbidden(c *gin.Context, message string) {
+	WriteErrorResponse(c, http.StatusForbidden, ErrCodeForbidden, message, nil)
+}
+
+// ErrorConflict writes a 409 Conflict response.
+// Use this when there is a conflict with the current state of the resource.
+//
+// Example:
+//
+//	if existingUser != nil {
+//	    responses.ErrorConflict(c, "User with this email already exists")
+//	    return
+//	}
+func ErrorConflict(c *gin.Context, message string) {
+	WriteErrorResponse(c, http.StatusConflict, ErrCodeConflict, message, nil)
+}
+
+// ErrorServiceUnavailable writes a 503 Service Unavailable response.
+// Use this when the service is temporarily unavailable due to maintenance or overload.
+//
+// Example:
+//
+//	responses.ErrorServiceUnavailable(c, "Service is under maintenance")
+func ErrorServiceUnavailable(c *gin.Context, message string) {
+	WriteErrorResponse(c, http.StatusServiceUnavailable, ErrCodeServiceUnavailable, message, nil)
 }
 
 // WriteErrorResponse writes an error JSON response with the given parameters.
@@ -159,9 +223,10 @@ func ErrorUnauthorized(c *gin.Context, message string) {
 //   - details: Optional error details (can be nil)
 func WriteErrorResponse(c *gin.Context, status int, code ErrorCode, message string, details interface{}) {
 	c.JSON(status, ErrorResponse{
-		Status:  status,
-		Code:    code,
-		Error:   message,
-		Details: details,
+		Status:    status,
+		Code:      code,
+		Error:     message,
+		Details:   details,
+		RequestID: extractRequestID(c),
 	})
 }

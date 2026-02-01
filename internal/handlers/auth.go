@@ -36,11 +36,11 @@ func NewAuthHandler(handler *handler.Handler, authService services.AuthService) 
 func (a *AuthHandler) LoginWithPassword(c *gin.Context) {
 	var payload dto.LoginWithPassword
 	if err := c.ShouldBindJSON(&payload); err != nil {
-		responses.ErrorBadRequest(c, "Invalid request payload")
+		responses.ErrorBindJson(c, err)
 		return
 	}
 
-	authResponse, err := a.authService.LoginWithPassword(payload.Email, payload.Password)
+	authResponse, err := a.authService.LoginWithPassword(c.Request.Context(), payload.Email, payload.Password)
 	if err != nil {
 		responses.ErrorInternalServerWithMessage(c, err.Error(), nil)
 		return
@@ -63,11 +63,11 @@ func (a *AuthHandler) LoginWithPassword(c *gin.Context) {
 func (a *AuthHandler) Register(c *gin.Context) {
 	var payload dto.RegisterUser
 	if err := c.ShouldBindJSON(&payload); err != nil {
-		responses.ErrorBadRequest(c, "Invalid request payload")
+		responses.ErrorBindJson(c, err)
 		return
 	}
 
-	authData, err := a.authService.RegisterWithPassword(&payload)
+	authData, err := a.authService.RegisterWithPassword(c.Request.Context(), &payload)
 	if err != nil {
 		responses.ErrorInternalServerWithMessage(c, err.Error(), nil)
 		return
@@ -86,13 +86,15 @@ func (a *AuthHandler) Register(c *gin.Context) {
 // @Failure		500	{object}	responses.ErrorResponse	"Internal Server Error
 // @Security     BearerAuth
 func (a *AuthHandler) GetUser(c *gin.Context) {
-	userID, exists := c.Get(medusa.UserIDContextKey)
+
+	ctx := medusa.NewContext(c)
+	userID, exists := ctx.UserID()
 	if !exists {
 		responses.ErrorUnauthorized(c, "User not authenticated")
 		return
 	}
 
-	user, err := a.authService.GetUser(userID.(uint))
+	user, err := a.authService.GetUser(c.Request.Context(), userID)
 	if err != nil {
 		responses.ErrorInternalServerWithMessage(c, err.Error(), nil)
 		return

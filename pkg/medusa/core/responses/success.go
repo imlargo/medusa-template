@@ -34,12 +34,13 @@ import (
 
 // SuccessResponse represents a standardized successful HTTP response.
 // It includes the HTTP status code, a success flag, an optional message,
-// and optional data payload.
+// optional data payload, and request ID for tracing.
 type SuccessResponse struct {
-	Status  int         `json:"status"`            // HTTP status code (e.g., 200, 201)
-	Success bool        `json:"success"`           // Always true for success responses
-	Message string      `json:"message,omitempty"` // Human-readable success message
-	Data    interface{} `json:"data,omitempty"`    // Response payload, can be any JSON-serializable data
+	Status    int         `json:"status"`               // HTTP status code (e.g., 200, 201)
+	Success   bool        `json:"success"`              // Always true for success responses
+	Message   string      `json:"message,omitempty"`    // Human-readable success message
+	Data      interface{} `json:"data,omitempty"`       // Response payload, can be any JSON-serializable data
+	RequestID string      `json:"request_id,omitempty"` // Request ID for tracing (if available)
 }
 
 // WriteSuccessResponse writes a successful JSON response with the given status, message, and data.
@@ -53,10 +54,11 @@ type SuccessResponse struct {
 //   - data: Response payload (can be nil)
 func WriteSuccessResponse(c *gin.Context, status int, message string, data interface{}) {
 	c.JSON(status, SuccessResponse{
-		Status:  status,
-		Success: true,
-		Message: message,
-		Data:    data,
+		Status:    status,
+		Success:   true,
+		Message:   message,
+		Data:      data,
+		RequestID: extractRequestID(c),
 	})
 }
 

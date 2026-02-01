@@ -14,9 +14,9 @@ import (
 )
 
 type AuthService interface {
-	GetUser(userID uint) (*models.User, error)
-	LoginWithPassword(email, password string) (*dto.AuthResponse, error)
-	RegisterWithPassword(user *dto.RegisterUser) (*dto.AuthResponse, error)
+	GetUser(ctx context.Context, userID uint) (*models.User, error)
+	LoginWithPassword(ctx context.Context, email, password string) (*dto.AuthResponse, error)
+	RegisterWithPassword(ctx context.Context, user *dto.RegisterUser) (*dto.AuthResponse, error)
 }
 
 type authService struct {
@@ -33,8 +33,8 @@ func NewAuthService(container *Service, userSrv UserService, jwtAuth *jwt.JWT) A
 	}
 }
 
-func (s *authService) GetUser(userID uint) (*models.User, error) {
-	user, err := s.store.Users.Get(context.Background(), userID)
+func (s *authService) GetUser(ctx context.Context, userID uint) (*models.User, error) {
+	user, err := s.store.Users.Get(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -42,8 +42,8 @@ func (s *authService) GetUser(userID uint) (*models.User, error) {
 	return user, nil
 }
 
-func (s *authService) LoginWithPassword(email, password string) (*dto.AuthResponse, error) {
-	user, err := s.store.Users.GetByEmail(context.Background(), strings.ToLower(email))
+func (s *authService) LoginWithPassword(ctx context.Context, email, password string) (*dto.AuthResponse, error) {
+	user, err := s.store.Users.GetByEmail(ctx, strings.ToLower(email))
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
 	}
@@ -79,9 +79,9 @@ func (s *authService) LoginWithPassword(email, password string) (*dto.AuthRespon
 	return AuthTokens, nil
 }
 
-func (s *authService) RegisterWithPassword(user *dto.RegisterUser) (*dto.AuthResponse, error) {
+func (s *authService) RegisterWithPassword(ctx context.Context, user *dto.RegisterUser) (*dto.AuthResponse, error) {
 
-	createdUser, err := s.userService.CreateUser(user)
+	createdUser, err := s.userService.CreateUser(ctx, user)
 	if err != nil {
 		return nil, err
 	}
