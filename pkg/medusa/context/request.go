@@ -452,14 +452,15 @@ func (c *Context) ClientIP() string {
 
 // BearerToken extracts and trims the token from the Authorization header.
 // Returns an empty string when the header is missing or malformed.
-func (c *Context) BearerToken() string {
+func (c *Context) BearerToken() (string, error) {
 	auth := c.GetHeader("Authorization")
 	if auth == "" {
-		return ""
+		return "", errors.New("authorization header is missing")
 	}
 	parts := strings.SplitN(auth, " ", 2)
 	if len(parts) != 2 || !strings.EqualFold(parts[0], "bearer") {
-		return ""
+		return "", errors.New("authorization header must be in format 'Bearer token'")
 	}
-	return strings.TrimSpace(parts[1])
+
+	return strings.TrimSpace(parts[1]), nil
 }
