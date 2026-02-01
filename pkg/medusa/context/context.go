@@ -36,3 +36,18 @@ func (c *Context) RequestID() string {
 	}
 	return ""
 }
+
+// UserAgent returns the User-Agent header from the request.
+func (c *Context) UserAgent() string {
+	return c.GetHeader("User-Agent")
+}
+
+// Referer returns the Referer header from the request.
+func (c *Context) Referer() string {
+	return c.GetHeader("Referer")
+}
+
+// AcceptLanguage returns the Accept-Language header from the request.
+func (c *Context) AcceptLanguage() string {
+	return c.GetHeader("Accept-Language")
+}

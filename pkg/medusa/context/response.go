@@ -35,16 +35,17 @@ type PagedResponse[T any] struct {
 	Success    bool           `json:"success"`
 	Data       []T            `json:"data"`
 	Pagination PaginationMeta `json:"pagination"`
+	RequestID  string         `json:"request_id,omitempty"` // Request ID for tracing
 }
 
 // PaginationMeta contains pagination metadata.
 type PaginationMeta struct {
-	Page       int   `json:"page"`
-	PageSize   int   `json:"page_size"`
-	TotalItems int64 `json:"total_items"`
-	TotalPages int   `json:"total_pages"`
-	HasNext    bool  `json:"has_next"`
-	HasPrev    bool  `json:"has_prev"`
+	Page       int   `json:"page"`        // Current page number
+	PageSize   int   `json:"page_size"`   // Number of items per page
+	TotalItems int64 `json:"total_items"` // Total number of items
+	TotalPages int   `json:"total_pages"` // Total number of pages
+	HasNext    bool  `json:"has_next"`    // Whether there is a next page
+	HasPrev    bool  `json:"has_prev"`    // Whether there is a previous page
 }
 
 // OK sends a 200 response with data.
@@ -85,7 +86,7 @@ func (c *Context) Error(err error) {
 	// Map to responses package error codes
 	switch appErr.Code {
 	case responses.ErrCodeBadRequest:
-		responses.ErrorBadRequest(c.Context, appErr.Message)
+		responses.WriteErrorResponse(c.Context, http.StatusBadRequest, responses.ErrCodeBadRequest, appErr.Message, appErr.Details)
 	case responses.ErrCodeBindJson:
 		responses.WriteErrorResponse(c.Context, http.StatusBadRequest, responses.ErrCodeBindJson, appErr.Message, appErr.Details)
 	case responses.ErrCodeUnauthorized:
@@ -108,7 +109,7 @@ func (c *Context) Error(err error) {
 		}
 	default:
 		// Handle unknown error codes
-		responses.ErrorBadRequest(c.Context, appErr.Message)
+		responses.WriteErrorResponse(c.Context, http.StatusBadRequest, responses.ErrCodeBadRequest, appErr.Message, appErr.Details)
 	}
 }
 
@@ -120,9 +121,12 @@ func (c *Context) AbortWithError(err error) {
 
 // Paged sends a paginated response.
 func Paged[T any](c *Context, data []T, page Pagination, totalItems int64) {
-	pageSize := page.GetPageSize(20)
+	pageSize := page.GetPageSize(DefaultPageSize)
 	totalPages := int(math.Ceil(float64(totalItems) / float64(pageSize)))
 	currentPage := page.GetPage()
+
+	// Extract request ID if available
+	requestID := c.RequestID()
 
 	c.JSON(http.StatusOK, PagedResponse[T]{
 		Status:  http.StatusOK,
@@ -136,5 +140,6 @@ func Paged[T any](c *Context, data []T, page Pagination, totalItems int64) {
 			HasNext:    currentPage < totalPages,
 			HasPrev:    currentPage > 1,
 		},
+		RequestID: requestID,
 	})
 }

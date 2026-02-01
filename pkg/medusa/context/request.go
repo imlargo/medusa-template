@@ -86,12 +86,62 @@ func formatValidationMessage(e validator.FieldError) string {
 		return "must be greater than or equal to " + e.Param()
 	case "lte":
 		return "must be less than or equal to " + e.Param()
+	case "gt":
+		return "must be greater than " + e.Param()
+	case "lt":
+		return "must be less than " + e.Param()
+	case "eq":
+		return "must be equal to " + e.Param()
+	case "ne":
+		return "must not be equal to " + e.Param()
 	case "oneof":
 		return "must be one of: " + e.Param()
 	case "url":
 		return "invalid URL format"
 	case "uuid":
 		return "invalid UUID format"
+	case "uuid4":
+		return "invalid UUID v4 format"
+	case "alpha":
+		return "must contain only letters"
+	case "alphanum":
+		return "must contain only letters and numbers"
+	case "numeric":
+		return "must be a valid number"
+	case "len":
+		if e.Type().Kind() == reflect.Slice || e.Type().Kind() == reflect.Array {
+			return "must have exactly " + e.Param() + " elements"
+		}
+		if e.Type().Kind() == reflect.String {
+			return "must be exactly " + e.Param() + " characters"
+		}
+		return "must have length " + e.Param()
+	case "contains":
+		return "must contain '" + e.Param() + "'"
+	case "containsany":
+		return "must contain at least one of: " + e.Param()
+	case "excludes":
+		return "must not contain '" + e.Param() + "'"
+	case "startswith":
+		return "must start with '" + e.Param() + "'"
+	case "endswith":
+		return "must end with '" + e.Param() + "'"
+	case "json":
+		return "must be valid JSON"
+	case "jwt":
+		return "must be a valid JWT token"
+	case "datetime":
+		return "must be a valid datetime in format: " + e.Param()
+	case "ip":
+		return "must be a valid IP address"
+	case "ipv4":
+		return "must be a valid IPv4 address"
+	case "ipv6":
+		return "must be a valid IPv6 address"
+	case "latitude":
+		return "must be a valid latitude"
+	case "longitude":
+		return "must be a valid longitude"
 	default:
 		return "invalid value"
 	}
@@ -102,18 +152,61 @@ func (c *Context) ParamID(name string) (uint, error) {
 	param := c.Param(name)
 	if param == "" {
 		if defaultErrorConstructor != nil {
-			return 0, defaultErrorConstructor.BadRequest(name + " is required")
+			return 0, defaultErrorConstructor.BadRequest(name + " parameter is required")
 		}
 		return 0, nil
 	}
 	id, err := strconv.ParseUint(param, 10, 64)
 	if err != nil {
 		if defaultErrorConstructor != nil {
-			return 0, defaultErrorConstructor.BadRequest("invalid " + name)
+			return 0, defaultErrorConstructor.BadRequest("invalid " + name + " parameter: must be a positive integer")
 		}
 		return 0, err
 	}
+	if id == 0 {
+		if defaultErrorConstructor != nil {
+			return 0, defaultErrorConstructor.BadRequest(name + " parameter must be greater than 0")
+		}
+		return 0, nil
+	}
 	return uint(id), nil
+}
+
+// ParamUUID gets a URL parameter as UUID string and validates it.
+// Validates UUID format: 8-4-4-4-12 hexadecimal digits separated by hyphens
+// Example: 550e8400-e29b-41d4-a716-446655440000
+func (c *Context) ParamUUID(name string) (string, error) {
+	param := c.Param(name)
+	if param == "" {
+		if defaultErrorConstructor != nil {
+			return "", defaultErrorConstructor.BadRequest(name + " parameter is required")
+		}
+		return "", strconv.ErrSyntax
+	}
+	// UUID format validation: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+	// Positions: 8 chars, hyphen at 8, 4 chars, hyphen at 13, 4 chars, hyphen at 18, 4 chars, hyphen at 23, 12 chars
+	if len(param) != 36 || 
+		param[8] != '-' || param[13] != '-' || param[18] != '-' || param[23] != '-' {
+		if defaultErrorConstructor != nil {
+			return "", defaultErrorConstructor.BadRequest("invalid " + name + " parameter: must be a valid UUID")
+		}
+		return "", strconv.ErrSyntax
+	}
+	// Validate hex characters in each segment
+	hexSegments := []string{
+		param[0:8], param[9:13], param[14:18], param[19:23], param[24:36],
+	}
+	for _, segment := range hexSegments {
+		for _, char := range segment {
+			if !((char >= '0' && char <= '9') || (char >= 'a' && char <= 'f') || (char >= 'A' && char <= 'F')) {
+				if defaultErrorConstructor != nil {
+					return "", defaultErrorConstructor.BadRequest("invalid " + name + " parameter: must be a valid UUID")
+				}
+				return "", strconv.ErrSyntax
+			}
+		}
+	}
+	return param, nil
 }
 
 // QueryInt gets a query parameter as int with default value.
@@ -129,6 +222,32 @@ func (c *Context) QueryInt(name string, defaultValue int) int {
 	return i
 }
 
+// QueryInt64 gets a query parameter as int64 with default value.
+func (c *Context) QueryInt64(name string, defaultValue int64) int64 {
+	val := c.Query(name)
+	if val == "" {
+		return defaultValue
+	}
+	i, err := strconv.ParseInt(val, 10, 64)
+	if err != nil {
+		return defaultValue
+	}
+	return i
+}
+
+// QueryUint gets a query parameter as uint with default value.
+func (c *Context) QueryUint(name string, defaultValue uint) uint {
+	val := c.Query(name)
+	if val == "" {
+		return defaultValue
+	}
+	i, err := strconv.ParseUint(val, 10, 64)
+	if err != nil {
+		return defaultValue
+	}
+	return uint(i)
+}
+
 // QueryBool gets a query parameter as bool with default value.
 func (c *Context) QueryBool(name string, defaultValue bool) bool {
 	val := c.Query(name)
@@ -142,27 +261,59 @@ func (c *Context) QueryBool(name string, defaultValue bool) bool {
 	return b
 }
 
+// QueryFloat64 gets a query parameter as float64 with default value.
+func (c *Context) QueryFloat64(name string, defaultValue float64) float64 {
+	val := c.Query(name)
+	if val == "" {
+		return defaultValue
+	}
+	f, err := strconv.ParseFloat(val, 64)
+	if err != nil {
+		return defaultValue
+	}
+	return f
+}
+
 // Pagination represents pagination parameters.
 type Pagination struct {
 	Page     int `form:"page" binding:"omitempty,min=1"`
 	PageSize int `form:"page_size" binding:"omitempty,min=1"`
 }
 
+// Pagination constants for consistent default values.
+const (
+	DefaultPage        = 1
+	DefaultPageSize    = 20
+	MaxPageSize        = 100
+	MinPageSize        = 1
+)
+
 // GetPage returns validated page number (minimum 1).
 func (p Pagination) GetPage() int {
 	if p.Page < 1 {
-		return 1
+		return DefaultPage
 	}
 	return p.Page
 }
 
 // GetPageSize returns validated page size with default.
+// If the provided defaultSize is less than MinPageSize, it uses DefaultPageSize instead.
+// If the provided defaultSize is greater than MaxPageSize, it uses MaxPageSize instead.
+// The returned value is constrained between MinPageSize and MaxPageSize.
 func (p Pagination) GetPageSize(defaultSize int) int {
-	if p.PageSize < 1 {
+	// Ensure defaultSize is valid, use DefaultPageSize if too small
+	if defaultSize < MinPageSize {
+		defaultSize = DefaultPageSize
+	}
+	// Ensure defaultSize doesn't exceed MaxPageSize
+	if defaultSize > MaxPageSize {
+		defaultSize = MaxPageSize
+	}
+	if p.PageSize < MinPageSize {
 		return defaultSize
 	}
-	if p.PageSize > 100 {
-		return 100
+	if p.PageSize > MaxPageSize {
+		return MaxPageSize
 	}
 	return p.PageSize
 }
@@ -175,8 +326,41 @@ func (p Pagination) Offset(defaultSize int) int {
 // Pagination gets pagination params from query string.
 func (c *Context) Pagination() Pagination {
 	return Pagination{
-		Page:     c.QueryInt("page", 1),
-		PageSize: c.QueryInt("page_size", 20),
+		Page:     c.QueryInt("page", DefaultPage),
+		PageSize: c.QueryInt("page_size", DefaultPageSize),
+	}
+}
+
+// SortOrder represents the sorting order for queries.
+type SortOrder string
+
+const (
+	SortOrderAsc  SortOrder = "asc"
+	SortOrderDesc SortOrder = "desc"
+)
+
+// SortParams represents sorting parameters from query string.
+type SortParams struct {
+	Field string
+	Order SortOrder
+}
+
+// Sort gets sorting parameters from query string.
+// Example: ?sort_by=created_at&sort_order=desc
+func (c *Context) Sort(defaultField string, defaultOrder SortOrder) SortParams {
+	field := c.Query("sort_by")
+	if field == "" {
+		field = defaultField
+	}
+
+	order := SortOrder(c.Query("sort_order"))
+	if order != SortOrderAsc && order != SortOrderDesc {
+		order = defaultOrder
+	}
+
+	return SortParams{
+		Field: field,
+		Order: order,
 	}
 }
 
