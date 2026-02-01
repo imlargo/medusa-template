@@ -21,21 +21,23 @@ func NewHealthHandler(handler *Handler, service *health.Service) *HealthHandler 
 	}
 }
 
+// extractRequestID gets the request ID from the gin context.
+func (h *HealthHandler) extractRequestID(c *gin.Context) string {
+	if id, exists := c.Get("request_id"); exists {
+		if reqID, ok := id.(string); ok {
+			return reqID
+		}
+	}
+	return ""
+}
+
 // Health returns a simple liveness check (always returns healthy if process is running).
 // This is suitable for load balancers that only need to know if the process is alive.
 // For detailed dependency health checks, use the Ready endpoint.
 func (h *HealthHandler) Health(c *gin.Context) {
-	// Extract request ID from context to include in response
-	requestID := ""
-	if id, exists := c.Get("request_id"); exists {
-		if reqID, ok := id.(string); ok {
-			requestID = reqID
-		}
-	}
-	
 	c.JSON(http.StatusOK, gin.H{
 		"status":     "healthy",
-		"request_id": requestID,
+		"request_id": h.extractRequestID(c),
 	})
 }
 
@@ -44,19 +46,11 @@ func (h *HealthHandler) Health(c *gin.Context) {
 func (h *HealthHandler) Ready(c *gin.Context) {
 	status := h.service.Check(c.Request.Context())
 
-	// Extract request ID from context to include in response
-	requestID := ""
-	if id, exists := c.Get("request_id"); exists {
-		if reqID, ok := id.(string); ok {
-			requestID = reqID
-		}
-	}
-
 	// Create response with request_id
 	response := gin.H{
 		"status":     status.Status,
 		"checks":     status.Checks,
-		"request_id": requestID,
+		"request_id": h.extractRequestID(c),
 	}
 
 	if status.Status == "unhealthy" {

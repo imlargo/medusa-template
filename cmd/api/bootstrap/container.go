@@ -183,9 +183,10 @@ func (c *Container) buildServices() *Services {
 	baseService := service.NewService(c.Logger)
 	serviceBase := services.NewService(baseService, c.Store, c.Config)
 
-	// Create UserService first
+	// Create UserService first, then AuthService that depends on it.
+	// AuthService requires UserService to fetch user details during authentication flows.
+	// This ordering is necessary because AuthService.LoginWithPassword calls UserService methods.
 	userService := services.NewUserService(serviceBase)
-	// Then create AuthService with the real UserService dependency
 	authService := services.NewAuthService(serviceBase, userService, c.JWT)
 
 	return &Services{
