@@ -53,7 +53,7 @@ const (
 
 // ErrorResponse represents a standardized error HTTP response.
 // It includes the HTTP status code, a machine-readable error code,
-// a human-readable error message, and optional error details.
+// a human-readable error message, optional error details, and request ID for tracing.
 //
 // Error Response Format:
 //
@@ -61,13 +61,15 @@ const (
 //	    "status": 400,
 //	    "code": "BAD_REQUEST",
 //	    "error": "Invalid email format",
-//	    "details": {...}
+//	    "details": {...},
+//	    "request_id": "550e8400-e29b-41d4-a716-446655440000"
 //	}
 type ErrorResponse struct {
-	Status  int         `json:"status"`            // HTTP status code (e.g., 400, 404, 500)
-	Code    ErrorCode   `json:"code"`              // Machine-readable error code
-	Error   string      `json:"error"`             // Human-readable error message
-	Details interface{} `json:"details,omitempty"` // Optional error details (e.g., validation errors)
+	Status    int         `json:"status"`            // HTTP status code (e.g., 400, 404, 500)
+	Code      ErrorCode   `json:"code"`              // Machine-readable error code
+	Error     string      `json:"error"`             // Human-readable error message
+	Details   interface{} `json:"details,omitempty"` // Optional error details (e.g., validation errors)
+	RequestID string      `json:"request_id,omitempty"` // Request ID for tracing (if available)
 }
 
 // ErrorBindJson writes a 400 Bad Request response for JSON binding errors.
@@ -207,10 +209,19 @@ func ErrorServiceUnavailable(c *gin.Context, message string) {
 //   - message: Human-readable error message
 //   - details: Optional error details (can be nil)
 func WriteErrorResponse(c *gin.Context, status int, code ErrorCode, message string, details interface{}) {
+	// Extract request ID if available
+	requestID := ""
+	if id, exists := c.Get("medusa_request_id"); exists {
+		if strID, ok := id.(string); ok {
+			requestID = strID
+		}
+	}
+
 	c.JSON(status, ErrorResponse{
-		Status:  status,
-		Code:    code,
-		Error:   message,
-		Details: details,
+		Status:    status,
+		Code:      code,
+		Error:     message,
+		Details:   details,
+		RequestID: requestID,
 	})
 }

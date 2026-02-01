@@ -86,12 +86,59 @@ func formatValidationMessage(e validator.FieldError) string {
 		return "must be greater than or equal to " + e.Param()
 	case "lte":
 		return "must be less than or equal to " + e.Param()
+	case "gt":
+		return "must be greater than " + e.Param()
+	case "lt":
+		return "must be less than " + e.Param()
+	case "eq":
+		return "must be equal to " + e.Param()
+	case "ne":
+		return "must not be equal to " + e.Param()
 	case "oneof":
 		return "must be one of: " + e.Param()
 	case "url":
 		return "invalid URL format"
 	case "uuid":
 		return "invalid UUID format"
+	case "uuid4":
+		return "invalid UUID v4 format"
+	case "alpha":
+		return "must contain only letters"
+	case "alphanum":
+		return "must contain only letters and numbers"
+	case "numeric":
+		return "must be a valid number"
+	case "len":
+		if e.Type().Kind() == reflect.String || e.Type().Kind() == reflect.Slice {
+			return "must be exactly " + e.Param() + " characters"
+		}
+		return "must be exactly " + e.Param()
+	case "contains":
+		return "must contain '" + e.Param() + "'"
+	case "containsany":
+		return "must contain at least one of: " + e.Param()
+	case "excludes":
+		return "must not contain '" + e.Param() + "'"
+	case "startswith":
+		return "must start with '" + e.Param() + "'"
+	case "endswith":
+		return "must end with '" + e.Param() + "'"
+	case "json":
+		return "must be valid JSON"
+	case "jwt":
+		return "must be a valid JWT token"
+	case "datetime":
+		return "must be a valid datetime in format: " + e.Param()
+	case "ip":
+		return "must be a valid IP address"
+	case "ipv4":
+		return "must be a valid IPv4 address"
+	case "ipv6":
+		return "must be a valid IPv6 address"
+	case "latitude":
+		return "must be a valid latitude"
+	case "longitude":
+		return "must be a valid longitude"
 	default:
 		return "invalid value"
 	}
@@ -148,21 +195,32 @@ type Pagination struct {
 	PageSize int `form:"page_size" binding:"omitempty,min=1"`
 }
 
+// Pagination constants for consistent default values.
+const (
+	DefaultPage        = 1
+	DefaultPageSize    = 20
+	MaxPageSize        = 100
+	MinPageSize        = 1
+)
+
 // GetPage returns validated page number (minimum 1).
 func (p Pagination) GetPage() int {
 	if p.Page < 1 {
-		return 1
+		return DefaultPage
 	}
 	return p.Page
 }
 
 // GetPageSize returns validated page size with default.
 func (p Pagination) GetPageSize(defaultSize int) int {
-	if p.PageSize < 1 {
+	if defaultSize < MinPageSize {
+		defaultSize = DefaultPageSize
+	}
+	if p.PageSize < MinPageSize {
 		return defaultSize
 	}
-	if p.PageSize > 100 {
-		return 100
+	if p.PageSize > MaxPageSize {
+		return MaxPageSize
 	}
 	return p.PageSize
 }
@@ -175,8 +233,8 @@ func (p Pagination) Offset(defaultSize int) int {
 // Pagination gets pagination params from query string.
 func (c *Context) Pagination() Pagination {
 	return Pagination{
-		Page:     c.QueryInt("page", 1),
-		PageSize: c.QueryInt("page_size", 20),
+		Page:     c.QueryInt("page", DefaultPage),
+		PageSize: c.QueryInt("page_size", DefaultPageSize),
 	}
 }
 
