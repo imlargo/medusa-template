@@ -78,10 +78,10 @@ const (
 //	    "request_id": "550e8400-e29b-41d4-a716-446655440000"
 //	}
 type ErrorResponse struct {
-	Status    int         `json:"status"`            // HTTP status code (e.g., 400, 404, 500)
-	Code      ErrorCode   `json:"code"`              // Machine-readable error code
-	Error     string      `json:"error"`             // Human-readable error message
-	Details   interface{} `json:"details,omitempty"` // Optional error details (e.g., validation errors)
+	Status    int         `json:"status"`               // HTTP status code (e.g., 400, 404, 500)
+	Code      ErrorCode   `json:"code"`                 // Machine-readable error code
+	Error     string      `json:"error"`                // Human-readable error message
+	Details   interface{} `json:"details,omitempty"`    // Optional error details (e.g., validation errors)
 	RequestID string      `json:"request_id,omitempty"` // Request ID for tracing (if available)
 }
 

@@ -80,9 +80,9 @@ func (c *Context) Error(err error) {
 		responses.ErrorInternalServer(c.Context, nil)
 		return
 	}
-	
+
 	appErr := defaultErrorConverter.ToError(err)
-	
+
 	// Map to responses package error codes
 	switch appErr.Code {
 	case responses.ErrCodeBadRequest:
