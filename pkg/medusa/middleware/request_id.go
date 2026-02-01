@@ -6,8 +6,8 @@ import (
 	"github.com/imlargo/medusa/pkg/medusa/context"
 )
 
-// RequestIDMiddleware adds a unique request ID to each request.
-func RequestIDMiddleware() gin.HandlerFunc {
+// CreateRequestIDMiddleware adds a unique request ID to each request.
+func CreateRequestIDMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		requestID := c.GetHeader("X-Request-ID")
 		if requestID == "" {

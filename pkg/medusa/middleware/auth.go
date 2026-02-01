@@ -9,11 +9,11 @@ import (
 	"github.com/imlargo/medusa/pkg/medusa/core/responses"
 )
 
-// NewAuthTokenMiddleware creates a middleware that validates JWT tokens from the Authorization header.
+// NewJWTAuthMiddleware creates a middleware that validates JWT tokens from the Authorization header.
 // It expects the token in the format "Bearer <token>".
 // On successful validation, it extracts the user ID from the token claims and stores it in the context.
 // If validation fails, it aborts the request with an Unauthorized response.
-func NewAuthTokenMiddleware(jwtAuth *jwt.JWT) gin.HandlerFunc {
+func NewJWTAuthMiddleware(jwtAuth *jwt.JWT) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		medusaCtx := medusa.NewContext(ctx)
 

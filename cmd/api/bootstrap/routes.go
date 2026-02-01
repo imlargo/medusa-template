@@ -9,7 +9,7 @@ import (
 // SetupRoutes configures all application routes.
 func SetupRoutes(router *gin.Engine, c *Container) {
 	// Global middleware
-	router.Use(middleware.RequestIDMiddleware())
+	router.Use(middleware.CreateRequestIDMiddleware())
 	router.Use(middleware.NewCorsMiddleware(c.Config.Server.Host, []string{}))
 
 	// Docs
@@ -35,7 +35,7 @@ func setupPublicRoutes(rg *gin.RouterGroup, c *Container) {
 
 func setupProtectedRoutes(rg *gin.RouterGroup, c *Container) {
 	// Middleware stack
-	authMiddleware := middleware.NewAuthTokenMiddleware(c.JWT)
+	authMiddleware := middleware.NewJWTAuthMiddleware(c.JWT)
 
 	protected := rg.Group("")
 	protected.Use(authMiddleware)
