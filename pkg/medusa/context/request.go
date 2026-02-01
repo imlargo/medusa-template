@@ -149,18 +149,43 @@ func (c *Context) ParamID(name string) (uint, error) {
 	param := c.Param(name)
 	if param == "" {
 		if defaultErrorConstructor != nil {
-			return 0, defaultErrorConstructor.BadRequest(name + " is required")
+			return 0, defaultErrorConstructor.BadRequest(name + " parameter is required")
 		}
 		return 0, nil
 	}
 	id, err := strconv.ParseUint(param, 10, 64)
 	if err != nil {
 		if defaultErrorConstructor != nil {
-			return 0, defaultErrorConstructor.BadRequest("invalid " + name)
+			return 0, defaultErrorConstructor.BadRequest("invalid " + name + " parameter: must be a positive integer")
+		}
+		return 0, err
+	}
+	if id == 0 {
+		if defaultErrorConstructor != nil {
+			return 0, defaultErrorConstructor.BadRequest(name + " parameter must be greater than 0")
 		}
 		return 0, err
 	}
 	return uint(id), nil
+}
+
+// ParamUUID gets a URL parameter as UUID string and validates it.
+func (c *Context) ParamUUID(name string) (string, error) {
+	param := c.Param(name)
+	if param == "" {
+		if defaultErrorConstructor != nil {
+			return "", defaultErrorConstructor.BadRequest(name + " parameter is required")
+		}
+		return "", nil
+	}
+	// Basic UUID format validation (8-4-4-4-12 hex digits)
+	if len(param) != 36 {
+		if defaultErrorConstructor != nil {
+			return "", defaultErrorConstructor.BadRequest("invalid " + name + " parameter: must be a valid UUID")
+		}
+		return "", nil
+	}
+	return param, nil
 }
 
 // QueryInt gets a query parameter as int with default value.
@@ -176,6 +201,32 @@ func (c *Context) QueryInt(name string, defaultValue int) int {
 	return i
 }
 
+// QueryInt64 gets a query parameter as int64 with default value.
+func (c *Context) QueryInt64(name string, defaultValue int64) int64 {
+	val := c.Query(name)
+	if val == "" {
+		return defaultValue
+	}
+	i, err := strconv.ParseInt(val, 10, 64)
+	if err != nil {
+		return defaultValue
+	}
+	return i
+}
+
+// QueryUint gets a query parameter as uint with default value.
+func (c *Context) QueryUint(name string, defaultValue uint) uint {
+	val := c.Query(name)
+	if val == "" {
+		return defaultValue
+	}
+	i, err := strconv.ParseUint(val, 10, 64)
+	if err != nil {
+		return defaultValue
+	}
+	return uint(i)
+}
+
 // QueryBool gets a query parameter as bool with default value.
 func (c *Context) QueryBool(name string, defaultValue bool) bool {
 	val := c.Query(name)
@@ -187,6 +238,19 @@ func (c *Context) QueryBool(name string, defaultValue bool) bool {
 		return defaultValue
 	}
 	return b
+}
+
+// QueryFloat64 gets a query parameter as float64 with default value.
+func (c *Context) QueryFloat64(name string, defaultValue float64) float64 {
+	val := c.Query(name)
+	if val == "" {
+		return defaultValue
+	}
+	f, err := strconv.ParseFloat(val, 64)
+	if err != nil {
+		return defaultValue
+	}
+	return f
 }
 
 // Pagination represents pagination parameters.
@@ -235,6 +299,39 @@ func (c *Context) Pagination() Pagination {
 	return Pagination{
 		Page:     c.QueryInt("page", DefaultPage),
 		PageSize: c.QueryInt("page_size", DefaultPageSize),
+	}
+}
+
+// SortOrder represents the sorting order for queries.
+type SortOrder string
+
+const (
+	SortOrderAsc  SortOrder = "asc"
+	SortOrderDesc SortOrder = "desc"
+)
+
+// SortParams represents sorting parameters from query string.
+type SortParams struct {
+	Field string
+	Order SortOrder
+}
+
+// Sort gets sorting parameters from query string.
+// Example: ?sort_by=created_at&sort_order=desc
+func (c *Context) Sort(defaultField string, defaultOrder SortOrder) SortParams {
+	field := c.Query("sort_by")
+	if field == "" {
+		field = defaultField
+	}
+
+	order := SortOrder(c.Query("sort_order"))
+	if order != SortOrderAsc && order != SortOrderDesc {
+		order = defaultOrder
+	}
+
+	return SortParams{
+		Field: field,
+		Order: order,
 	}
 }
 

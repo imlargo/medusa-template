@@ -17,6 +17,7 @@ type Error struct {
 	Internal error               `json:"-"`
 }
 
+// Error returns the error message, implementing the error interface.
 func (e *Error) Error() string {
 	if e.Internal != nil {
 		return fmt.Sprintf("%s: %v", e.Message, e.Internal)
@@ -24,8 +25,15 @@ func (e *Error) Error() string {
 	return e.Message
 }
 
+// Unwrap returns the internal error, implementing errors.Unwrap.
 func (e *Error) Unwrap() error {
 	return e.Internal
+}
+
+// WithDetails adds or replaces details on the error.
+func (e *Error) WithDetails(details interface{}) *Error {
+	e.Details = details
+	return e
 }
 
 // Error constructors
