@@ -86,7 +86,7 @@ func (c *Context) Error(err error) {
 	// Map to responses package error codes
 	switch appErr.Code {
 	case responses.ErrCodeBadRequest:
-		responses.ErrorBadRequest(c.Context, appErr.Message)
+		responses.WriteErrorResponse(c.Context, http.StatusBadRequest, responses.ErrCodeBadRequest, appErr.Message, appErr.Details)
 	case responses.ErrCodeBindJson:
 		responses.WriteErrorResponse(c.Context, http.StatusBadRequest, responses.ErrCodeBindJson, appErr.Message, appErr.Details)
 	case responses.ErrCodeUnauthorized:
@@ -109,7 +109,7 @@ func (c *Context) Error(err error) {
 		}
 	default:
 		// Handle unknown error codes
-		responses.ErrorBadRequest(c.Context, appErr.Message)
+		responses.WriteErrorResponse(c.Context, http.StatusBadRequest, responses.ErrCodeBadRequest, appErr.Message, appErr.Details)
 	}
 }
 

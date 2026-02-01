@@ -53,20 +53,12 @@ type SuccessResponse struct {
 //   - message: Human-readable success message
 //   - data: Response payload (can be nil)
 func WriteSuccessResponse(c *gin.Context, status int, message string, data interface{}) {
-	// Extract request ID if available
-	requestID := ""
-	if id, exists := c.Get("medusa_request_id"); exists {
-		if strID, ok := id.(string); ok {
-			requestID = strID
-		}
-	}
-
 	c.JSON(status, SuccessResponse{
 		Status:    status,
 		Success:   true,
 		Message:   message,
 		Data:      data,
-		RequestID: requestID,
+		RequestID: extractRequestID(c),
 	})
 }
 

@@ -181,7 +181,7 @@ func (c *Context) ParamUUID(name string) (string, error) {
 		if defaultErrorConstructor != nil {
 			return "", defaultErrorConstructor.BadRequest(name + " parameter is required")
 		}
-		return "", nil
+		return "", strconv.ErrSyntax
 	}
 	// UUID format validation: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 	// Positions: 8 chars, hyphen at 8, 4 chars, hyphen at 13, 4 chars, hyphen at 18, 4 chars, hyphen at 23, 12 chars
@@ -190,7 +190,7 @@ func (c *Context) ParamUUID(name string) (string, error) {
 		if defaultErrorConstructor != nil {
 			return "", defaultErrorConstructor.BadRequest("invalid " + name + " parameter: must be a valid UUID")
 		}
-		return "", nil
+		return "", strconv.ErrSyntax
 	}
 	// Validate hex characters in each segment
 	hexSegments := []string{
@@ -202,7 +202,7 @@ func (c *Context) ParamUUID(name string) (string, error) {
 				if defaultErrorConstructor != nil {
 					return "", defaultErrorConstructor.BadRequest("invalid " + name + " parameter: must be a valid UUID")
 				}
-				return "", nil
+				return "", strconv.ErrSyntax
 			}
 		}
 	}
@@ -298,11 +298,16 @@ func (p Pagination) GetPage() int {
 
 // GetPageSize returns validated page size with default.
 // If the provided defaultSize is less than MinPageSize, it uses DefaultPageSize instead.
+// If the provided defaultSize is greater than MaxPageSize, it uses MaxPageSize instead.
 // The returned value is constrained between MinPageSize and MaxPageSize.
 func (p Pagination) GetPageSize(defaultSize int) int {
-	// Ensure defaultSize is valid, use DefaultPageSize if not
+	// Ensure defaultSize is valid, use DefaultPageSize if too small
 	if defaultSize < MinPageSize {
 		defaultSize = DefaultPageSize
+	}
+	// Ensure defaultSize doesn't exceed MaxPageSize
+	if defaultSize > MaxPageSize {
+		defaultSize = MaxPageSize
 	}
 	if p.PageSize < MinPageSize {
 		return defaultSize

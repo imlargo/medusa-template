@@ -6,6 +6,19 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// requestIDContextKey is the context key for storing the request ID.
+const requestIDContextKey = "medusa_request_id"
+
+// extractRequestID extracts the request ID from the Gin context if available.
+func extractRequestID(c *gin.Context) string {
+	if id, exists := c.Get(requestIDContextKey); exists {
+		if strID, ok := id.(string); ok {
+			return strID
+		}
+	}
+	return ""
+}
+
 // ErrorCode represents a machine-readable error code for API errors.
 // These codes help clients programmatically handle different error scenarios.
 // Error codes should remain stable across API versions for backward compatibility.
@@ -209,19 +222,11 @@ func ErrorServiceUnavailable(c *gin.Context, message string) {
 //   - message: Human-readable error message
 //   - details: Optional error details (can be nil)
 func WriteErrorResponse(c *gin.Context, status int, code ErrorCode, message string, details interface{}) {
-	// Extract request ID if available
-	requestID := ""
-	if id, exists := c.Get("medusa_request_id"); exists {
-		if strID, ok := id.(string); ok {
-			requestID = strID
-		}
-	}
-
 	c.JSON(status, ErrorResponse{
 		Status:    status,
 		Code:      code,
 		Error:     message,
 		Details:   details,
-		RequestID: requestID,
+		RequestID: extractRequestID(c),
 	})
 }
