@@ -173,6 +173,8 @@ func (c *Context) ParamID(name string) (uint, error) {
 }
 
 // ParamUUID gets a URL parameter as UUID string and validates it.
+// Validates UUID format: 8-4-4-4-12 hexadecimal digits separated by hyphens
+// Example: 550e8400-e29b-41d4-a716-446655440000
 func (c *Context) ParamUUID(name string) (string, error) {
 	param := c.Param(name)
 	if param == "" {
@@ -181,7 +183,8 @@ func (c *Context) ParamUUID(name string) (string, error) {
 		}
 		return "", nil
 	}
-	// UUID format validation (8-4-4-4-12 hex digits with hyphens)
+	// UUID format validation: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+	// Positions: 8 chars, hyphen at 8, 4 chars, hyphen at 13, 4 chars, hyphen at 18, 4 chars, hyphen at 23, 12 chars
 	if len(param) != 36 || 
 		param[8] != '-' || param[13] != '-' || param[18] != '-' || param[23] != '-' {
 		if defaultErrorConstructor != nil {
@@ -294,7 +297,10 @@ func (p Pagination) GetPage() int {
 }
 
 // GetPageSize returns validated page size with default.
+// If the provided defaultSize is less than MinPageSize, it uses DefaultPageSize instead.
+// The returned value is constrained between MinPageSize and MaxPageSize.
 func (p Pagination) GetPageSize(defaultSize int) int {
+	// Ensure defaultSize is valid, use DefaultPageSize if not
 	if defaultSize < MinPageSize {
 		defaultSize = DefaultPageSize
 	}
