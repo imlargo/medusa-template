@@ -109,10 +109,13 @@ func formatValidationMessage(e validator.FieldError) string {
 	case "numeric":
 		return "must be a valid number"
 	case "len":
-		if e.Type().Kind() == reflect.String || e.Type().Kind() == reflect.Slice {
+		if e.Type().Kind() == reflect.Slice || e.Type().Kind() == reflect.Array {
+			return "must have exactly " + e.Param() + " elements"
+		}
+		if e.Type().Kind() == reflect.String {
 			return "must be exactly " + e.Param() + " characters"
 		}
-		return "must be exactly " + e.Param()
+		return "must have length " + e.Param()
 	case "contains":
 		return "must contain '" + e.Param() + "'"
 	case "containsany":
@@ -164,7 +167,7 @@ func (c *Context) ParamID(name string) (uint, error) {
 		if defaultErrorConstructor != nil {
 			return 0, defaultErrorConstructor.BadRequest(name + " parameter must be greater than 0")
 		}
-		return 0, err
+		return 0, nil
 	}
 	return uint(id), nil
 }
@@ -178,12 +181,27 @@ func (c *Context) ParamUUID(name string) (string, error) {
 		}
 		return "", nil
 	}
-	// Basic UUID format validation (8-4-4-4-12 hex digits)
-	if len(param) != 36 {
+	// UUID format validation (8-4-4-4-12 hex digits with hyphens)
+	if len(param) != 36 || 
+		param[8] != '-' || param[13] != '-' || param[18] != '-' || param[23] != '-' {
 		if defaultErrorConstructor != nil {
 			return "", defaultErrorConstructor.BadRequest("invalid " + name + " parameter: must be a valid UUID")
 		}
 		return "", nil
+	}
+	// Validate hex characters in each segment
+	hexSegments := []string{
+		param[0:8], param[9:13], param[14:18], param[19:23], param[24:36],
+	}
+	for _, segment := range hexSegments {
+		for _, char := range segment {
+			if !((char >= '0' && char <= '9') || (char >= 'a' && char <= 'f') || (char >= 'A' && char <= 'F')) {
+				if defaultErrorConstructor != nil {
+					return "", defaultErrorConstructor.BadRequest("invalid " + name + " parameter: must be a valid UUID")
+				}
+				return "", nil
+			}
+		}
 	}
 	return param, nil
 }
