@@ -29,5 +29,7 @@ func main() {
 	}
 	defer app.Container.Cleanup()
 
-	app.Run(context.Background())
+	if err := app.Run(context.Background()); err != nil {
+		log.Fatal(err)
+	}
 }

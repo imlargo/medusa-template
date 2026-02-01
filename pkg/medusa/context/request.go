@@ -304,9 +304,8 @@ const (
 )
 
 // Pagination represents pagination parameters extracted from the query string.
-// Validation against MinPageSize / MaxPageSize is enforced programmatically in
-// GetPageSize rather than in the binding tag, so changing the constants never
-// silently desynchronises from the struct.
+// Validation against MinPageSize / MaxPageSize is enforced both at the binding level
+// (via binding tags) and programmatically in GetPageSize to ensure consistency.
 type Pagination struct {
 	Page     int `form:"page"      binding:"omitempty,min=1"`
 	PageSize int `form:"page_size" binding:"omitempty,min=1"`
@@ -451,7 +450,7 @@ func (c *Context) ClientIP() string {
 }
 
 // BearerToken extracts and trims the token from the Authorization header.
-// Returns an empty string when the header is missing or malformed.
+// Returns an error when the header is missing or malformed.
 func (c *Context) BearerToken() (string, error) {
 	auth := c.GetHeader("Authorization")
 	if auth == "" {

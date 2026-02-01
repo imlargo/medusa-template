@@ -20,6 +20,7 @@ import (
 	"github.com/imlargo/medusa/pkg/medusa/services/health"
 	"github.com/imlargo/medusa/pkg/medusa/services/storage"
 	"github.com/redis/go-redis/v9"
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
 
@@ -182,19 +183,19 @@ func (c *Container) buildServices() *Services {
 	baseService := service.NewService(c.Logger)
 	serviceBase := services.NewService(baseService, c.Store, c.Config)
 
+	// Create UserService first
+	userService := services.NewUserService(serviceBase)
+	// Then create AuthService with the real UserService dependency
+	authService := services.NewAuthService(serviceBase, userService, c.JWT)
+
 	return &Services{
-		User: services.NewUserService(serviceBase),
-		Auth: services.NewAuthService(serviceBase, nil, c.JWT), // User injected below
+		User: userService,
+		Auth: authService,
 	}
 }
 
 func (c *Container) buildHandlers() *Handlers {
 	baseHandler := handler.NewHandler(c.Logger)
-
-	// Rebuild auth service with user service (circular dep resolution)
-	baseService := service.NewService(c.Logger)
-	serviceBase := services.NewService(baseService, c.Store, c.Config)
-	c.Services.Auth = services.NewAuthService(serviceBase, c.Services.User, c.JWT)
 
 	return &Handlers{
 		Health: handler.NewHealthHandler(baseHandler, c.HealthService),
@@ -204,6 +205,24 @@ func (c *Container) buildHandlers() *Handlers {
 
 // Cleanup releases resources. Call with defer.
 func (c *Container) Cleanup() {
+	// Close database connection
+	if c.DB != nil {
+		sqlDB, err := c.DB.DB()
+		if err == nil {
+			if closeErr := sqlDB.Close(); closeErr != nil {
+				c.Logger.Error("Failed to close database connection", zap.Error(closeErr))
+			}
+		}
+	}
+
+	// Close Redis connection
+	if c.RedisClient != nil {
+		if err := c.RedisClient.Close(); err != nil {
+			c.Logger.Error("Failed to close Redis connection", zap.Error(err))
+		}
+	}
+
+	// Sync logger
 	c.Logger.Sync()
 }
 
