@@ -231,20 +231,26 @@ const docTemplate = `{
         "github_com_imlargo_medusa_pkg_medusa_core_responses.ErrorCode": {
             "type": "string",
             "enum": [
-                "BIND_JSON",
-                "NOT_FOUND",
-                "INTERNAL_SERVER_ERROR",
                 "BAD_REQUEST",
+                "BIND_JSON",
+                "UNAUTHORIZED",
+                "FORBIDDEN",
+                "NOT_FOUND",
+                "CONFLICT",
                 "TOO_MANY_REQUESTS",
-                "UNAUTHORIZED"
+                "INTERNAL_SERVER_ERROR",
+                "SERVICE_UNAVAILABLE"
             ],
             "x-enum-varnames": [
-                "ErrBindJson",
-                "ErrNotFound",
-                "ErrInternalServer",
-                "ErrBadRequest",
-                "ErrTooManyRequests",
-                "ErrUnauthorized"
+                "ErrCodeBadRequest",
+                "ErrCodeBindJson",
+                "ErrCodeUnauthorized",
+                "ErrCodeForbidden",
+                "ErrCodeNotFound",
+                "ErrCodeConflict",
+                "ErrCodeTooManyRequests",
+                "ErrCodeInternalServer",
+                "ErrCodeServiceUnavailable"
             ]
         },
         "github_com_imlargo_medusa_pkg_medusa_core_responses.ErrorResponse": {
@@ -263,6 +269,10 @@ const docTemplate = `{
                 },
                 "error": {
                     "description": "Human-readable error message",
+                    "type": "string"
+                },
+                "request_id": {
+                    "description": "Request ID for tracing (if available)",
                     "type": "string"
                 },
                 "status": {
