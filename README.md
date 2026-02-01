@@ -46,11 +46,22 @@ Medusa is a **production-ready framework** for Go that eliminates the tedious se
 ### Core Framework
 
 - **🎯 Application Lifecycle** Graceful shutdown, signal handling, context propagation
+- **🏗️ Bootstrap Architecture** DI container with lifecycle hooks and optional components
 - **🌐 HTTP Server** Built on Gin with extensible middleware and multiple server support
 - **📝 Structured Logging** Production-ready logging with Zap
 - **🗄️ Repository Pattern** Clean data layer abstractions with GORM
 - **📊 Observability** Prometheus metrics, health checks, and monitoring
 - **⚙️ Configuration** Environment-based config with validation
+- **🔍 Request Tracking** Request ID propagation through all layers
+
+### Enhanced Context & Error Handling
+
+- **📦 Typed Context** Parameter extraction with automatic validation
+- **✅ Validation Helpers** Built-in pagination, sorting, UUID validation
+- **🎯 Authentication Helpers** `UserID()`, `IsAuthenticated()` for auth checks
+- **📤 Response Helpers** `OK()`, `Created()`, `Error()`, `Paged()` for consistent responses
+- **🚨 Structured Errors** HTTP-aware error system with request ID tracking
+- **🔄 Error Wrapping** Support for error wrapping and unwrapping
 
 ### Authentication & Security
 
@@ -101,7 +112,79 @@ go run cmd/api/main.go
 
 The server will start at `http://localhost:8080`
 
-### Your First Endpoint
+### Modern Bootstrap Architecture
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+    "github.com/imlargo/medusa/cmd/api/bootstrap"
+)
+
+func main() {
+    // Bootstrap handles all dependency wiring
+    app, err := bootstrap.New("medusa-api")
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer app.Container.Cleanup()
+
+    // Run with graceful shutdown and error handling
+    if err := app.Run(context.Background()); err != nil {
+        log.Fatal(err)
+    }
+}
+```
+
+The bootstrap system automatically configures:
+- Database connection with connection pooling
+- Optional Redis for caching
+- JWT authentication
+- Health checks (liveness + readiness)
+- Structured logging
+- Metrics collection
+- Rate limiting (if enabled)
+
+### Enhanced Context Usage
+
+```go
+import "github.com/imlargo/medusa/pkg/medusa"
+
+func GetUsers(c *gin.Context) {
+    ctx := medusa.NewContext(c)
+    
+    // Type-safe parameter extraction with validation
+    userID, err := ctx.ParamUUID("id")
+    if err != nil {
+        // Automatically returns 400 with validation error
+        return
+    }
+    
+    // Built-in pagination
+    page := ctx.GetPage()      // Defaults to 1
+    pageSize := ctx.GetPageSize() // Defaults to 20, max 100
+    
+    // Authentication helpers
+    if !ctx.IsAuthenticated() {
+        ctx.Error(medusa.ErrUnauthorized("Login required"))
+        return
+    }
+    
+    currentUserID, _ := ctx.UserID()
+    
+    // Query with context propagation
+    users, err := userService.List(c.Request.Context(), page, pageSize)
+    if err != nil {
+        ctx.Error(medusa.Wrap(err, "Failed to fetch users"))
+        return
+    }
+    
+    // Paginated response with request ID tracking
+    ctx.Paged(users, page, pageSize, totalCount)
+}
+```
 
 ```go
 package main
@@ -245,6 +328,38 @@ emailService.SendEmail(&email.SendEmailParams{
     Html:    "<h1>Welcome! </h1><p>Thanks for joining. </p>",
 })
 ```
+
+#### Health Checks
+
+The framework includes built-in health check endpoints with request ID tracking:
+
+```go
+// Liveness check - Returns 200 if process is running
+GET /health
+Response: {
+    "status": "healthy",
+    "request_id": "550e8400-e29b-41d4-a716-446655440000"
+}
+
+// Readiness check - Returns detailed dependency status
+GET /ready
+Response: {
+    "status": "healthy",
+    "checks": {
+        "database": "healthy",
+        "redis": "healthy"
+    },
+    "request_id": "550e8400-e29b-41d4-a716-446655440000"
+}
+
+// Returns 503 if dependencies are unhealthy with Retry-After header
+```
+
+The health service automatically checks:
+- Database connectivity with configurable timeout
+- Redis connectivity (if configured)
+- Returns appropriate HTTP status codes for monitoring
+- Includes Retry-After header for unhealthy responses
 
 ---
 
@@ -604,32 +719,35 @@ func TestPingHandler(t *testing.T) {
 - [x] Rate limiting & CORS
 - [x] Prometheus metrics
 
-### 🚧 v0.2 - Developer Experience
+### 🚧 v0.2 - Developer Experience (In Progress)
 
+- [x] Health checks & readiness probes
+- [x] Request ID middleware
+- [x] Enhanced error handling with request tracking
+- [x] Bootstrap architecture with DI container
+- [x] Typed context with validation helpers
 - [ ] Comprehensive documentation
 - [ ] Example applications
 - [ ] Testing utilities
-- [ ] Health checks & readiness probes
-- [ ] Request ID middleware
 - [ ] Docker Compose setup
 - [ ] CI/CD examples
 
 ### 🎯 v0.3 - Validation & Documentation
 
-- [ ] Automatic request validation
-- [ ] Declarative validation tags
-- [ ] OpenAPI 3.0 generation
-- [ ] Swagger UI at `/docs`
+- [x] Automatic request validation
+- [x] Declarative validation tags
+- [x] OpenAPI 3.0 generation
+- [x] Swagger UI at `/docs`
 - [ ] ReDoc integration
 - [ ] Auto-generated examples
 
 ### 🎯 v0.4 - Type Safety & Ergonomics
 
-- [ ] Enhanced `medusa.Context` with helpers
-- [ ] Type-safe handlers with generics
-- [ ] Dependency injection system
-- [ ] Automatic pagination
-- [ ] Query filter builders
+- [x] Enhanced `medusa.Context` with helpers
+- [x] Type-safe handlers with generics
+- [x] Dependency injection system
+- [x] Automatic pagination
+- [x] Query filter builders
 - [ ] File upload helpers
 
 ### 🎯 v0.5 - CLI & Generators

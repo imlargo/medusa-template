@@ -102,11 +102,9 @@ func (c *Context) Error(err error) {
 	case responses.ErrCodeServiceUnavailable:
 		responses.ErrorServiceUnavailable(c.Context, appErr.Message)
 	case responses.ErrCodeInternalServer:
-		if appErr.Internal != nil {
-			responses.ErrorInternalServer(c.Context, appErr.Details)
-		} else {
-			responses.ErrorInternalServerWithMessage(c.Context, appErr.Message, appErr.Details)
-		}
+		// Always use the custom message for internal server errors
+		// The Internal field is kept for logging but never exposed to clients
+		responses.ErrorInternalServerWithMessage(c.Context, appErr.Message, appErr.Details)
 	default:
 		// Handle unknown error codes
 		responses.WriteErrorResponse(c.Context, http.StatusBadRequest, responses.ErrCodeBadRequest, appErr.Message, appErr.Details)
