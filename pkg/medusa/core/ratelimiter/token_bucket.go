@@ -2,6 +2,7 @@ package ratelimiter
 
 import (
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/time/rate"
@@ -27,7 +28,7 @@ type tokenBucketLimiter struct {
 // tblEntry represents a single rate limiter entry for a specific key.
 type tblEntry struct {
 	Limiter  *rate.Limiter // The actual rate limiter
-	LastSeen time.Time     // Last time this key made a request (for cleanup)
+	LastSeen int64         // Unix nanoseconds of last request time
 }
 
 // NewTokenBucketLimiter creates a new token bucket rate limiter with the given configuration.
@@ -54,25 +55,26 @@ func NewTokenBucketLimiter(cfg Config) RateLimiter {
 // getEntry retrieves or creates a rate limiter entry for the given key.
 // This method is safe for concurrent use.
 func (rl *tokenBucketLimiter) getEntry(key string) *tblEntry {
-	rl.Lock()
-	_, exists := rl.entries[key]
-	rl.Unlock()
+	rl.RLock()
+	entry, exists := rl.entries[key]
+	rl.RUnlock()
 
 	if !exists {
-		// Create a new rate limiter with the configured rate
 		limiter := rate.NewLimiter(rate.Every(rl.config.TimeFrame), rl.config.RequestsPerTimeFrame)
+		
 		rl.Lock()
-
-		rl.entries[key] = &tblEntry{
-			Limiter:  limiter,
-			LastSeen: time.Now(),
+		// Check again in case another goroutine created it
+		if entry, exists = rl.entries[key]; !exists {
+			entry = &tblEntry{
+				Limiter:  limiter,
+				LastSeen: time.Now().UnixNano(),
+			}
+			rl.entries[key] = entry
 		}
-
 		rl.Unlock()
 	}
 
-	entry := rl.entries[key]
-	entry.LastSeen = time.Now()
+	atomic.StoreInt64(&entry.LastSeen, time.Now().UnixNano())
 
 	return entry
 }
@@ -105,9 +107,11 @@ func (rl *tokenBucketLimiter) cleanUpEntries() {
 	for {
 		time.Sleep(timeInterval)
 
+		cutoffNano := time.Now().Add(-maxAge).UnixNano()
+
 		rl.Lock()
 		for key, entry := range rl.entries {
-			if time.Since(entry.LastSeen) > maxAge {
+			if atomic.LoadInt64(&entry.LastSeen) < cutoffNano {
 				delete(rl.entries, key)
 			}
 		}
