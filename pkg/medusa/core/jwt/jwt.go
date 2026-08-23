@@ -16,15 +16,26 @@ type JWT struct {
 	config Config
 }
 
-// NewJwt creates a new JWT instance with the provided configuration.
-// It panics if the configuration is invalid.
-func NewJwt(cfg Config) *JWT {
-
+// NewJWT creates a JWT signer from cfg, returning an error when the
+// configuration is unusable.
+func NewJWT(cfg Config) (*JWT, error) {
 	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("jwt config: %w", err)
+	}
+
+	return &JWT{config: cfg}, nil
+}
+
+// MustNewJWT is NewJWT for callers that cannot handle a failure, such as a
+// package-level variable. It panics on an invalid configuration, so prefer
+// NewJWT anywhere an error can be returned.
+func MustNewJWT(cfg Config) *JWT {
+	j, err := NewJWT(cfg)
+	if err != nil {
 		panic(err)
 	}
 
-	return &JWT{config: cfg}
+	return j
 }
 
 // GenerateToken creates a new JWT token for the specified user ID with an expiration time.
@@ -60,7 +71,7 @@ func (j *JWT) ParseToken(tokenString string) (*CustomClaims, error) {
 		return nil, errors.New("token is empty")
 	}
 
-	token, err := jwt.ParseWithClaims(tokenString, &CustomClaims{}, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &CustomClaims{}, func(token *jwt.Token) (any, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method %v", token.Header["alg"])
 		}
@@ -74,9 +85,12 @@ func (j *JWT) ParseToken(tokenString string) (*CustomClaims, error) {
 		return nil, err
 	}
 
-	if claims, ok := token.Claims.(*CustomClaims); ok && token.Valid {
-		return claims, nil
-	} else {
-		return nil, err
+	claims, ok := token.Claims.(*CustomClaims)
+	if !ok || !token.Valid {
+		// The previous code returned the (nil) parse error here, which surfaced
+		// as a nil claims pointer and a nil error.
+		return nil, errors.New("token claims are not valid")
 	}
+
+	return claims, nil
 }
