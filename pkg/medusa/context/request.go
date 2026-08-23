@@ -1,43 +1,22 @@
-// pkg/medusa/context_request.go
 package context
 
 import (
 	"errors"
-	"fmt"
 	"reflect"
 	"strconv"
 	"strings"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
+	"github.com/imlargo/medusa/pkg/medusa/core/responses"
 )
-
-// ErrorConstructor is an interface for creating errors.
-// This avoids circular dependencies with the medusa package.
-type ErrorConstructor interface {
-	Validation(message string, details interface{}) error
-	BadRequest(message string) error
-}
-
-// ErrInvalidParam is the base sentinel for malformed URL or query parameters.
-// Actual errors wrap this so callers can use errors.Is(err, ErrInvalidParam).
-var ErrInvalidParam = errors.New("invalid parameter")
-
-// defaultErrorConstructor is set by the medusa package to avoid circular imports.
-var defaultErrorConstructor ErrorConstructor
-
-// SetErrorConstructor sets the error constructor for the context package.
-// This is called by the medusa package during initialization.
-func SetErrorConstructor(ec ErrorConstructor) {
-	defaultErrorConstructor = ec
-}
 
 // ---------------------------------------------------------------------------
 // Binding
 // ---------------------------------------------------------------------------
 
 // Bind binds and validates the request body to the given struct.
-func (c *Context) Bind(obj interface{}) error {
+func (c *Context) Bind(obj any) error {
 	if err := c.ShouldBindJSON(obj); err != nil {
 		return c.formatValidationError(err)
 	}
@@ -45,7 +24,7 @@ func (c *Context) Bind(obj interface{}) error {
 }
 
 // BindQuery binds and validates query parameters.
-func (c *Context) BindQuery(obj interface{}) error {
+func (c *Context) BindQuery(obj any) error {
 	if err := c.ShouldBindQuery(obj); err != nil {
 		return c.formatValidationError(err)
 	}
@@ -53,7 +32,7 @@ func (c *Context) BindQuery(obj interface{}) error {
 }
 
 // BindURI binds and validates URI parameters.
-func (c *Context) BindURI(obj interface{}) error {
+func (c *Context) BindURI(obj any) error {
 	if err := c.ShouldBindUri(obj); err != nil {
 		return c.formatValidationError(err)
 	}
@@ -64,22 +43,20 @@ func (c *Context) BindURI(obj interface{}) error {
 // Validation error formatting
 // ---------------------------------------------------------------------------
 
+// formatValidationError turns a binding failure into a client-facing error:
+// a field-by-field map when the validator rejected the value, a plain 400 when
+// the payload could not be parsed at all.
 func (c *Context) formatValidationError(err error) error {
-	if defaultErrorConstructor == nil {
-		return err
-	}
-
 	var validationErrors validator.ValidationErrors
 	if errors.As(err, &validationErrors) {
 		details := make(map[string]string, len(validationErrors))
-		for _, e := range validationErrors {
-			field := strings.ToLower(e.Field())
-			details[field] = formatValidationMessage(e)
+		for _, fieldErr := range validationErrors {
+			details[strings.ToLower(fieldErr.Field())] = formatValidationMessage(fieldErr)
 		}
-		return defaultErrorConstructor.Validation("validation failed", details)
+		return responses.Validation("validation failed", details)
 	}
 
-	return defaultErrorConstructor.BadRequest("invalid request body")
+	return responses.BadRequest("invalid request body")
 }
 
 func formatValidationMessage(e validator.FieldError) string {
@@ -225,14 +202,9 @@ func (c *Context) ParamUUID(name string) (string, error) {
 	return parsed.String(), nil
 }
 
-// paramError builds a contextual error for a malformed parameter.
-// When an ErrorConstructor is registered it delegates to BadRequest;
-// otherwise it wraps ErrInvalidParam so callers can use errors.Is().
-func (c *Context) paramError(msg string) error {
-	if defaultErrorConstructor != nil {
-		return defaultErrorConstructor.BadRequest(msg)
-	}
-	return fmt.Errorf("%w: %s", ErrInvalidParam, msg)
+// paramError builds a 400 for a malformed URL parameter.
+func (c *Context) paramError(message string) error {
+	return responses.BadRequest(message)
 }
 
 // ---------------------------------------------------------------------------

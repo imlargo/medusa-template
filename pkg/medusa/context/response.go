@@ -7,124 +7,71 @@ import (
 	"github.com/imlargo/medusa/pkg/medusa/core/responses"
 )
 
-// ErrorConverter is an interface for converting errors.
-// This avoids circular dependencies with the medusa package.
-type ErrorConverter interface {
-	ToError(err error) ConvertedError
-}
-
-// ConvertedError represents a converted error with all necessary fields.
-type ConvertedError struct {
-	Code     responses.ErrorCode
-	Message  string
-	Details  interface{}
-	Internal error
-}
-
-// defaultErrorConverter is set by the medusa package to avoid circular imports.
-var defaultErrorConverter ErrorConverter
-
-// SetErrorConverter sets the error converter for the context package.
-func SetErrorConverter(ec ErrorConverter) {
-	defaultErrorConverter = ec
-}
-
-// PagedResponse is the paginated response format.
+// PagedResponse is the JSON body of a paginated list.
 type PagedResponse[T any] struct {
 	Status     int            `json:"status"`
 	Success    bool           `json:"success"`
 	Data       []T            `json:"data"`
 	Pagination PaginationMeta `json:"pagination"`
-	RequestID  string         `json:"request_id,omitempty"` // Request ID for tracing
+	RequestID  string         `json:"request_id,omitempty"`
 }
 
-// PaginationMeta contains pagination metadata.
+// PaginationMeta describes where the returned page sits in the full result set.
 type PaginationMeta struct {
-	Page       int   `json:"page"`        // Current page number
-	PageSize   int   `json:"page_size"`   // Number of items per page
-	TotalItems int64 `json:"total_items"` // Total number of items
-	TotalPages int   `json:"total_pages"` // Total number of pages
-	HasNext    bool  `json:"has_next"`    // Whether there is a next page
-	HasPrev    bool  `json:"has_prev"`    // Whether there is a previous page
+	Page       int   `json:"page"`
+	PageSize   int   `json:"page_size"`
+	TotalItems int64 `json:"total_items"`
+	TotalPages int   `json:"total_pages"`
+	HasNext    bool  `json:"has_next"`
+	HasPrev    bool  `json:"has_prev"`
 }
 
-// OK sends a 200 response with data.
-func (c *Context) OK(data interface{}) {
-	responses.SuccessOK(c.Context, data)
+// OK replies 200 with data.
+func (c *Context) OK(data any) {
+	responses.WriteSuccess(c.Context, http.StatusOK, responses.MessageOK, data)
 }
 
-// Created sends a 201 response with data.
-func (c *Context) Created(data interface{}) {
-	responses.SuccessCreated(c.Context, data)
+// Created replies 201 with the newly created resource.
+func (c *Context) Created(data any) {
+	responses.WriteSuccess(c.Context, http.StatusCreated, responses.MessageCreated, data)
 }
 
-// Updated sends a 200 response for successful update.
-func (c *Context) Updated(data interface{}) {
-	responses.SuccessUpdated(c.Context, data)
+// Updated replies 200 with the updated resource.
+func (c *Context) Updated(data any) {
+	responses.WriteSuccess(c.Context, http.StatusOK, responses.MessageUpdated, data)
 }
 
-// Deleted sends a 200 response for successful deletion.
+// Deleted replies 200 confirming a deletion.
 func (c *Context) Deleted() {
-	responses.SuccessDeleted(c.Context)
+	responses.WriteSuccess(c.Context, http.StatusOK, responses.MessageDeleted, nil)
 }
 
-// NoContent sends a 204 response.
+// NoContent replies 204 with an empty body.
 func (c *Context) NoContent() {
-	c.Status(http.StatusNoContent)
+	responses.WriteNoContent(c.Context)
 }
 
-// Error sends an error response.
-func (c *Context) Error(err error) {
-	if defaultErrorConverter == nil {
-		// Fallback if error converter not set
-		responses.ErrorInternalServer(c.Context, nil)
-		return
-	}
-
-	appErr := defaultErrorConverter.ToError(err)
-
-	// Map to responses package error codes
-	switch appErr.Code {
-	case responses.ErrCodeBadRequest:
-		responses.WriteErrorResponse(c.Context, http.StatusBadRequest, responses.ErrCodeBadRequest, appErr.Message, appErr.Details)
-	case responses.ErrCodeBindJson:
-		responses.WriteErrorResponse(c.Context, http.StatusBadRequest, responses.ErrCodeBindJson, appErr.Message, appErr.Details)
-	case responses.ErrCodeUnauthorized:
-		responses.ErrorUnauthorized(c.Context, appErr.Message)
-	case responses.ErrCodeForbidden:
-		responses.ErrorForbidden(c.Context, appErr.Message)
-	case responses.ErrCodeNotFound:
-		responses.WriteErrorResponse(c.Context, http.StatusNotFound, responses.ErrCodeNotFound, appErr.Message, appErr.Details)
-	case responses.ErrCodeConflict:
-		responses.ErrorConflict(c.Context, appErr.Message)
-	case responses.ErrCodeTooManyRequests:
-		responses.ErrorTooManyRequests(c.Context, appErr.Message)
-	case responses.ErrCodeServiceUnavailable:
-		responses.ErrorServiceUnavailable(c.Context, appErr.Message)
-	case responses.ErrCodeInternalServer:
-		// Always use the custom message for internal server errors
-		// The Internal field is kept for logging but never exposed to clients
-		responses.ErrorInternalServerWithMessage(c.Context, appErr.Message, appErr.Details)
-	default:
-		// Handle unknown error codes
-		responses.WriteErrorResponse(c.Context, http.StatusBadRequest, responses.ErrCodeBadRequest, appErr.Message, appErr.Details)
-	}
+// Fail renders err as the response, deriving the status from the error.
+//
+// It is named Fail rather than Error on purpose: gin.Context.Error means
+// "record this error for later", and a method that shadowed it while doing
+// something entirely different — writing the response and ending the request —
+// would be a trap for anyone porting Gin code. Handlers wrapped by medusa.Handle
+// return their error instead and never call this.
+func (c *Context) Fail(err error) {
+	responses.WriteError(c.Context, err)
 }
 
-// AbortWithError sends an error and aborts the middleware chain.
-func (c *Context) AbortWithError(err error) {
-	c.Error(err)
-	c.Abort()
+// AbortWithFailure renders err and stops the middleware chain.
+func (c *Context) AbortWithFailure(err error) {
+	responses.AbortWithError(c.Context, err)
 }
 
-// Paged sends a paginated response.
+// Paged replies 200 with one page of results and the metadata to walk the rest.
 func Paged[T any](c *Context, data []T, page Pagination, totalItems int64) {
 	pageSize := page.GetPageSize(DefaultPageSize)
-	totalPages := int(math.Ceil(float64(totalItems) / float64(pageSize)))
 	currentPage := page.GetPage()
-
-	// Extract request ID if available
-	requestID := c.RequestID()
+	totalPages := int(math.Ceil(float64(totalItems) / float64(pageSize)))
 
 	c.JSON(http.StatusOK, PagedResponse[T]{
 		Status:  http.StatusOK,
@@ -138,6 +85,6 @@ func Paged[T any](c *Context, data []T, page Pagination, totalItems int64) {
 			HasNext:    currentPage < totalPages,
 			HasPrev:    currentPage > 1,
 		},
-		RequestID: requestID,
+		RequestID: c.RequestID(),
 	})
 }
