@@ -7,7 +7,9 @@ import (
 
 	"github.com/imlargo/medusa/internal/dto"
 	"github.com/imlargo/medusa/internal/models"
+	"github.com/imlargo/medusa/pkg/medusa/core/responses"
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 )
 
 type UserService interface {
@@ -27,43 +29,74 @@ func NewUserService(container *Service) UserService {
 	}
 }
 
+// CreateUser registers a new account with a hashed password.
 func (s *userServiceImpl) CreateUser(ctx context.Context, registerUser *dto.RegisterUser) (*models.User, error) {
+	email := strings.ToLower(strings.TrimSpace(registerUser.Email))
 
-	registerUser.Email = strings.ToLower(registerUser.Email)
-
-	// Validate user data
-	user := &models.User{
-		Email:    registerUser.Email,
-		Password: registerUser.Password,
+	// Distinguish "no such user" from "the lookup failed". Discarding this error
+	// meant a database outage read as a free email address, so registration
+	// carried on and failed later with something unrelated.
+	existing, err := s.store.Users.GetByEmail(ctx, email)
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, responses.Internal(err)
+	}
+	if existing != nil {
+		return nil, responses.Conflict("a user with this email already exists")
 	}
 
-	existingUser, _ := s.store.Users.GetByEmail(ctx, user.Email)
-	if existingUser != nil {
-		return nil, errors.New("user with this email already exists")
-	}
-
-	// Hash the password
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(registerUser.Password), bcrypt.DefaultCost)
 	if err != nil {
-		return nil, errors.New("failed to hash password")
+		// The cause is kept for the log; the client gets the generic message.
+		return nil, responses.InternalWithMessage("could not process the password", err)
 	}
-	user.Password = string(hashedPassword)
+
+	user := &models.User{
+		Email:    email,
+		Password: string(hashedPassword),
+	}
 
 	if err := s.store.Users.Create(ctx, user); err != nil {
-		return nil, err
+		return nil, responses.Internal(err)
 	}
 
 	return user, nil
 }
 
+// DeleteUser removes an account.
 func (s *userServiceImpl) DeleteUser(ctx context.Context, userID uint) error {
-	return s.store.Users.Delete(ctx, userID)
+	if err := s.store.Users.Delete(ctx, userID); err != nil {
+		return classifyUserError(err)
+	}
+
+	return nil
 }
 
+// GetUserByID looks an account up by its primary key.
 func (s *userServiceImpl) GetUserByID(ctx context.Context, userID uint) (*models.User, error) {
-	return s.store.Users.Get(ctx, userID)
+	user, err := s.store.Users.Get(ctx, userID)
+	if err != nil {
+		return nil, classifyUserError(err)
+	}
+
+	return user, nil
 }
 
+// GetUserByEmail looks an account up by email. The lookup is case-insensitive.
 func (s *userServiceImpl) GetUserByEmail(ctx context.Context, email string) (*models.User, error) {
-	return s.store.Users.GetByEmail(ctx, email)
+	user, err := s.store.Users.GetByEmail(ctx, strings.ToLower(strings.TrimSpace(email)))
+	if err != nil {
+		return nil, classifyUserError(err)
+	}
+
+	return user, nil
+}
+
+// classifyUserError turns a repository error into one carrying an HTTP status,
+// so a missing row answers 404 instead of the 500 a raw gorm error produces.
+func classifyUserError(err error) error {
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return responses.NotFound("user")
+	}
+
+	return responses.Internal(err)
 }
