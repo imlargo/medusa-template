@@ -38,7 +38,7 @@ func main() {
 // run owns the application lifecycle. It exists so that shutdown always runs:
 // os.Exit — and therefore log.Fatal — would skip every deferred call.
 func run(ctx context.Context) (err error) {
-	app, appErr := bootstrap.New(appName)
+	app, appErr := bootstrap.New(ctx, appName)
 	if appErr != nil {
 		return appErr
 	}
