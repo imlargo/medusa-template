@@ -1,33 +1,41 @@
+# Keep this file conservative. Because the Dockerfile does `COPY . .`, anything
+# excluded here is invisible to the build — and an excluded source file makes the
+# COPY layer digest stay identical across a real change, so the layer is served
+# from cache and the binary silently keeps the old code. Never add a pattern that
+# can match anything under cmd/, internal/, pkg/ or api/.
+
 # Git
 .git
 .gitignore
 .gitattributes
 
-# Documentation
+# Docs (api/docs is generated Swagger and IS needed by the build)
 README.md
 CHANGELOG.md
 LICENSE
 
-# Docker
+# Docker and CI
 Dockerfile*
 docker-compose*
 .dockerignore
+.github
 
-# Development files
+# Editors
 .vscode
 .idea
 
 # Build artifacts
+bin/
 dist/
 build/
-main
-*.exe
-
-# Environment files
-.env
-.env.local
-.env.production
-
-# Temporary files
 tmp/
 temp/
+*.exe
+
+# Test and coverage output
+coverage.out
+coverage.html
+
+# Secrets: these must never reach an image layer
+.env
+.env.*
