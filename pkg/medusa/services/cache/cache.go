@@ -8,10 +8,10 @@ import (
 // Cache defines the interface for Redis cache operations
 type Cache interface {
 	// Get retrieves a value from cache and deserializes it into dest
-	Get(ctx context.Context, key string, dest interface{}) error
+	Get(ctx context.Context, key string, dest any) error
 
 	// Set stores a value in cache with optional TTL (0 = no expiration)
-	Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error
+	Set(ctx context.Context, key string, value any, ttl time.Duration) error
 
 	// Delete removes a key from cache
 	Delete(ctx context.Context, key string) error
@@ -23,16 +23,16 @@ type Cache interface {
 	Clear(ctx context.Context) error
 
 	// Remember gets from cache or executes fn, stores and returns the result
-	Remember(ctx context.Context, key string, ttl time.Duration, dest interface{}, fn func() (interface{}, error)) error
+	Remember(ctx context.Context, key string, ttl time.Duration, dest any, fn func() (any, error)) error
 
 	// GetOrSet retrieves a value or sets a default if it doesn't exist
-	GetOrSet(ctx context.Context, key string, defaultValue interface{}, ttl time.Duration, dest interface{}) error
+	GetOrSet(ctx context.Context, key string, defaultValue any, ttl time.Duration, dest any) error
 
 	// SetMultiple stores multiple key-value pairs
-	SetMultiple(ctx context.Context, items map[string]interface{}, ttl time.Duration) error
+	SetMultiple(ctx context.Context, items map[string]any, ttl time.Duration) error
 
 	// GetMultiple retrieves multiple values
-	GetMultiple(ctx context.Context, keys []string) (map[string]interface{}, error)
+	GetMultiple(ctx context.Context, keys []string) (map[string]any, error)
 
 	// DeletePattern removes all keys matching the pattern
 	DeletePattern(ctx context.Context, pattern string) (int64, error)

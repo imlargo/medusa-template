@@ -7,7 +7,7 @@ import (
 )
 
 type PushNotificationSender interface {
-	Send(subscription *Subscription, payload interface{}) error
+	Send(subscription *Subscription, payload any) error
 }
 
 type pushNotificationSender struct {
@@ -24,7 +24,7 @@ func NewPushNotificationSender(vapidPrivateKey string, vapidPublicKey string, su
 	}
 }
 
-func (p *pushNotificationSender) Send(subscription *Subscription, payload interface{}) error {
+func (p *pushNotificationSender) Send(subscription *Subscription, payload any) error {
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
 		return err

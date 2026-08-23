@@ -19,21 +19,18 @@ func NewJWTAuthMiddleware(jwtAuth *jwt.JWT) gin.HandlerFunc {
 
 		token, err := medusaCtx.BearerToken()
 		if err != nil {
-			ctx.Abort()
-			responses.ErrorUnauthorized(ctx, err.Error())
+			responses.AbortWithError(ctx, responses.Unauthorized(err.Error()))
 			return
 		}
 
 		if token == "" {
-			ctx.Abort()
-			responses.ErrorUnauthorized(ctx, "token is empty")
+			responses.AbortWithError(ctx, responses.Unauthorized("token is empty"))
 			return
 		}
 
 		tokenData, err := jwtAuth.ParseToken(token)
 		if err != nil {
-			ctx.Abort()
-			responses.ErrorUnauthorized(ctx, err.Error())
+			responses.AbortWithError(ctx, responses.Unauthorized("invalid or expired token"))
 			return
 		}
 

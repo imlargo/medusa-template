@@ -31,7 +31,7 @@
 //
 //	// Cache-aside pattern
 //	var user User
-//	err := cache.Remember(ctx, "user:1", 1*time.Hour, &user, func() (interface{}, error) {
+//	err := cache.Remember(ctx, "user:1", 1*time.Hour, &user, func() (any, error) {
 //	    return fetchUserFromDB(1)
 //	})
 //
@@ -85,7 +85,7 @@ func NewRedisCache(client *redis.Client) Cache {
 //	        // Key doesn't exist
 //	    }
 //	}
-func (r *redisCache) Get(ctx context.Context, key string, dest interface{}) error {
+func (r *redisCache) Get(ctx context.Context, key string, dest any) error {
 	if dest == nil {
 		return ErrNilValue
 	}
@@ -115,7 +115,7 @@ func (r *redisCache) Get(ctx context.Context, key string, dest interface{}) erro
 //	user := User{ID: 1, Name: "John"}
 //	cache.Set(ctx, "user:1", user, 1*time.Hour)     // Expires in 1 hour
 //	cache.Set(ctx, "config:app", config, 0)         // Never expires
-func (r *redisCache) Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error {
+func (r *redisCache) Set(ctx context.Context, key string, value any, ttl time.Duration) error {
 	data, err := json.Marshal(value)
 	if err != nil {
 		return fmt.Errorf("failed to marshal value for key %s: %w", key, err)
@@ -165,12 +165,12 @@ func (r *redisCache) Clear(ctx context.Context) error {
 // This is useful for expensive computations or database queries:
 //
 //	var user User
-//	err := cache.Remember(ctx, "user:123", 1*time.Hour, &user, func() (interface{}, error) {
+//	err := cache.Remember(ctx, "user:123", 1*time.Hour, &user, func() (any, error) {
 //	    return db.FindUser(123)
 //	})
 //
 // If fn returns an error, the cache is not updated and the error is returned.
-func (r *redisCache) Remember(ctx context.Context, key string, ttl time.Duration, dest interface{}, fn func() (interface{}, error)) error {
+func (r *redisCache) Remember(ctx context.Context, key string, ttl time.Duration, dest any, fn func() (any, error)) error {
 	if dest == nil {
 		return ErrNilValue
 	}
@@ -216,7 +216,7 @@ func (r *redisCache) Remember(ctx context.Context, key string, ttl time.Duration
 //
 //	var counter int
 //	cache.GetOrSet(ctx, "page:views", 0, 24*time.Hour, &counter)
-func (r *redisCache) GetOrSet(ctx context.Context, key string, defaultValue interface{}, ttl time.Duration, dest interface{}) error {
+func (r *redisCache) GetOrSet(ctx context.Context, key string, defaultValue any, ttl time.Duration, dest any) error {
 	if dest == nil {
 		return ErrNilValue
 	}
@@ -253,12 +253,12 @@ func (r *redisCache) GetOrSet(ctx context.Context, key string, defaultValue inte
 //
 // Example:
 //
-//	items := map[string]interface{}{
+//	items := map[string]any{
 //	    "user:1": User{ID: 1, Name: "John"},
 //	    "user:2": User{ID: 2, Name: "Jane"},
 //	}
 //	cache.SetMultiple(ctx, items, 1*time.Hour)
-func (r *redisCache) SetMultiple(ctx context.Context, items map[string]interface{}, ttl time.Duration) error {
+func (r *redisCache) SetMultiple(ctx context.Context, items map[string]any, ttl time.Duration) error {
 	if len(items) == 0 {
 		return nil
 	}
@@ -288,9 +288,9 @@ func (r *redisCache) SetMultiple(ctx context.Context, items map[string]interface
 //	keys := []string{"user:1", "user:2", "user:3"}
 //	values, err := cache.GetMultiple(ctx, keys)
 //	// values contains only keys that exist in cache
-func (r *redisCache) GetMultiple(ctx context.Context, keys []string) (map[string]interface{}, error) {
+func (r *redisCache) GetMultiple(ctx context.Context, keys []string) (map[string]any, error) {
 	if len(keys) == 0 {
-		return make(map[string]interface{}), nil
+		return make(map[string]any), nil
 	}
 
 	pipe := r.client.Pipeline()
@@ -304,7 +304,7 @@ func (r *redisCache) GetMultiple(ctx context.Context, keys []string) (map[string
 		return nil, fmt.Errorf("failed to execute pipeline: %w", err)
 	}
 
-	result := make(map[string]interface{})
+	result := make(map[string]any)
 	for key, cmd := range cmds {
 		val, err := cmd.Result()
 		if err == redis.Nil {
@@ -314,7 +314,7 @@ func (r *redisCache) GetMultiple(ctx context.Context, keys []string) (map[string
 			return nil, fmt.Errorf("failed to get key %s: %w", key, err)
 		}
 
-		var data interface{}
+		var data any
 		if err := json.Unmarshal([]byte(val), &data); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal value for key %s: %w", key, err)
 		}

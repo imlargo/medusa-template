@@ -2,12 +2,12 @@ package oauth
 
 // User represents basic user information from any provider
 type User struct {
-	ID            string                 `json:"id"`
-	Email         string                 `json:"email"`
-	Name          string                 `json:"name"`
-	Picture       string                 `json:"picture"`
-	VerifiedEmail bool                   `json:"verified_email"`
-	RawData       map[string]interface{} `json:"raw_data"` // Additional provider-specific data
+	ID            string         `json:"id"`
+	Email         string         `json:"email"`
+	Name          string         `json:"name"`
+	Picture       string         `json:"picture"`
+	VerifiedEmail bool           `json:"verified_email"`
+	RawData       map[string]any `json:"raw_data"` // Additional provider-specific data
 }
 
 // Provider contains provider-specific configuration

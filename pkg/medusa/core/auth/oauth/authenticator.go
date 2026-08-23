@@ -46,7 +46,7 @@ func (a *OAuth2Authenticator) GetUser(token *oauth2.Token) (*User, error) {
 	}
 
 	// Decode response into generic map
-	var rawData map[string]interface{}
+	var rawData map[string]any
 	if err := json.NewDecoder(resp.Body).Decode(&rawData); err != nil {
 		return nil, fmt.Errorf("error decoding user information: %v", err)
 	}
@@ -72,7 +72,7 @@ func (a *OAuth2Authenticator) GetUser(token *oauth2.Token) (*User, error) {
 }
 
 // extractField extracts a field from the raw data map (supports nested fields with dot notation)
-func (a *OAuth2Authenticator) extractField(data map[string]interface{}, fieldPath string) string {
+func (a *OAuth2Authenticator) extractField(data map[string]any, fieldPath string) string {
 	if fieldPath == "" {
 		return ""
 	}
