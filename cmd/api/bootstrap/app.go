@@ -57,7 +57,11 @@ func NewWithOptions(name string, opts Options) (*App, error) {
 	printBanner(os.Stdout, name, cfg)
 
 	return &App{
-		App:       app.NewApp(app.WithName(name), app.WithServer(server)),
+		App: app.NewApp(
+			app.WithName(name),
+			app.WithServer(server),
+			app.WithLogger(container.Logger),
+		),
 		Container: container,
 	}, nil
 }
