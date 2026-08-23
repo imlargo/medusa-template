@@ -1,11 +1,17 @@
+// Command api runs the Medusa HTTP API.
 package main
 
 import (
 	"context"
-	"log"
+	"errors"
+	"fmt"
+	"os"
 
 	"github.com/imlargo/medusa/cmd/api/bootstrap"
 )
+
+// appName identifies the application in logs and in the startup banner.
+const appName = "medusa-api"
 
 // @title Medusa
 // @version 1.0
@@ -23,13 +29,23 @@ import (
 // @in header
 // @name X-API-Key
 func main() {
-	app, err := bootstrap.New("medusa-api")
-	if err != nil {
-		log.Fatal(err)
+	if err := run(context.Background()); err != nil {
+		fmt.Fprintf(os.Stderr, "%s: %v\n", appName, err)
+		os.Exit(1)
 	}
-	defer app.Container.Cleanup()
+}
 
-	if err := app.Run(context.Background()); err != nil {
-		log.Fatal(err)
+// run owns the application lifecycle. It exists so that shutdown always runs:
+// os.Exit — and therefore log.Fatal — would skip every deferred call.
+func run(ctx context.Context) (err error) {
+	app, appErr := bootstrap.New(appName)
+	if appErr != nil {
+		return appErr
 	}
+
+	defer func() {
+		err = errors.Join(err, app.Close())
+	}()
+
+	return app.Run(ctx)
 }

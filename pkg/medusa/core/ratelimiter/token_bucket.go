@@ -61,7 +61,7 @@ func (rl *tokenBucketLimiter) getEntry(key string) *tblEntry {
 
 	if !exists {
 		limiter := rate.NewLimiter(rate.Every(rl.config.TimeFrame), rl.config.RequestsPerTimeFrame)
-		
+
 		rl.Lock()
 		// Check again in case another goroutine created it
 		if entry, exists = rl.entries[key]; !exists {

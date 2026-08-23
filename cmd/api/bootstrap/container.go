@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -20,36 +21,44 @@ import (
 	"github.com/imlargo/medusa/pkg/medusa/services/health"
 	"github.com/imlargo/medusa/pkg/medusa/services/storage"
 	"github.com/redis/go-redis/v9"
-	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
 
-// Container holds all application dependencies.
+// healthCheckTimeout bounds how long the readiness endpoint waits for all
+// dependency checks combined before reporting the app as unhealthy.
+const healthCheckTimeout = 5 * time.Second
+
+// Container holds every dependency of the application.
+//
+// Optional components are nil when the matching Options flag is off or the
+// configuration for them is absent; always check before use, or go through the
+// Has* helpers.
 type Container struct {
 	Config *config.Config
 	Logger *logger.Logger
 
-	// Infrastructure (required)
+	// Infrastructure, always present.
 	DB    *gorm.DB
 	Store *store.Store
 	JWT   *jwt.JWT
 
-	// Infrastructure (optional components are pointers)
-	RedisClient *redis.Client       // nil if Redis not configured
-	Cache       cache.Cache         // nil if Redis not configured
-	Storage     storage.FileStorage // nil if Storage not configured
-	Metrics     metrics.MetricsService
-	RateLimiter ratelimiter.RateLimiter // nil if disabled
+	// Infrastructure, optional.
+	RedisClient *redis.Client           // nil unless Redis is configured
+	Cache       cache.Cache             // nil unless Redis is configured
+	Storage     storage.FileStorage     // nil unless object storage is configured
+	Metrics     metrics.MetricsService  // nil unless metrics are enabled
+	RateLimiter ratelimiter.RateLimiter // nil unless rate limiting is enabled
 
-	// Services
 	HealthService *health.Service
 
-	// Application layers
 	Services *Services
 	Handlers *Handlers
+
+	// closers releases resources in reverse order of acquisition.
+	closers []func() error
 }
 
-// Services holds all application services.
+// Services holds the application services.
 type Services struct {
 	User services.UserService
 	Auth services.AuthService
@@ -57,7 +66,7 @@ type Services struct {
 	// Product services.ProductService
 }
 
-// Handlers holds all HTTP handlers.
+// Handlers holds the HTTP handlers.
 type Handlers struct {
 	Health *handler.HealthHandler
 	Auth   *handlers.AuthHandler
@@ -65,14 +74,15 @@ type Handlers struct {
 	// Product *handlers.ProductHandler
 }
 
-// Options configures which components to initialize.
+// Options selects which optional components to initialize. A component is only
+// built when its flag is on *and* the corresponding configuration is present.
 type Options struct {
 	WithRedis   bool
 	WithStorage bool
 	WithMetrics bool
 }
 
-// DefaultOptions returns options for a full-featured app.
+// DefaultOptions enables every optional component.
 func DefaultOptions() Options {
 	return Options{
 		WithRedis:   true,
@@ -81,158 +91,159 @@ func DefaultOptions() Options {
 	}
 }
 
-// MinimalOptions returns options for a lightweight app.
+// MinimalOptions keeps only the database and JWT.
 func MinimalOptions() Options {
-	return Options{
-		WithRedis:   false,
-		WithStorage: false,
-		WithMetrics: false,
-	}
+	return Options{}
 }
 
-// NewContainer creates and wires all dependencies.
+// NewContainer wires all dependencies. On failure it closes whatever was already
+// opened, so the caller never has to clean up after an error.
 func NewContainer(cfg *config.Config, opts Options) (*Container, error) {
-	log := logger.NewLogger()
 	c := &Container{
 		Config: cfg,
-		Logger: log,
+		Logger: logger.NewLogger(),
 	}
-
-	// === Infrastructure ===
-
-	// Database (required)
-	db, err := database.NewPostgresDatabase(cfg.Database.URL)
-	if err != nil {
-		return nil, fmt.Errorf("database: %w", err)
-	}
-	c.DB = db
-	medusaStore := repository.NewStore(db, log)
-	c.Store = store.NewStore(medusaStore)
-
-	// JWT (required)
-	c.JWT = jwt.NewJwt(jwt.Config{
-		Secret: cfg.Auth.JwtSecret,
+	c.onClose(func() error {
+		// Registered first so it runs last: every other closer may still log.
+		// Sync fails whenever stderr is not a syncable file, which is the norm on
+		// macOS and in containers, so the error carries no signal worth surfacing.
+		_ = c.Logger.Sync()
+		return nil
 	})
 
-	// Redis (optional)
-	if opts.WithRedis && cfg.Redis.Url != "" {
-		redisClient, err := database.NewRedisClient(cfg.Redis.Url)
-		if err != nil {
-			return nil, fmt.Errorf("redis: %w", err)
+	if err := c.initInfrastructure(opts); err != nil {
+		// Best effort: the caller only gets the initialization error, so surface
+		// any cleanup failure through the logger instead of swallowing it.
+		if closeErr := c.Close(); closeErr != nil {
+			c.Logger.Sugar().Errorw("failed to release partially initialized resources", "error", closeErr)
 		}
-		c.RedisClient = redisClient
-		c.Cache = cache.NewRedisCache(redisClient)
-		log.Info("Redis initialized")
+		return nil, err
 	}
 
-	// Storage (optional)
-	if opts.WithStorage && cfg.Storage.BucketName != "" {
-		fileStorage, err := storage.NewFileStorage(storage.StorageProviderR2, cfg.Storage)
-		if err != nil {
-			return nil, fmt.Errorf("storage: %w", err)
-		}
-		c.Storage = fileStorage
-		log.Info("Storage initialized")
-	}
-
-	// Metrics (optional)
-	if opts.WithMetrics {
-		c.Metrics = metrics.NewPrometheusMetrics()
-	}
-
-	// Rate Limiter (based on config)
-	if cfg.RateLimiter.Enabled {
-		c.RateLimiter = ratelimiter.NewTokenBucketLimiter(ratelimiter.Config{
-			RequestsPerTimeFrame: cfg.RateLimiter.RequestsPerTimeFrame,
-			TimeFrame:            cfg.RateLimiter.TimeFrame,
-		})
-		log.Info("Rate limiter enabled")
-	}
-
-	// === Health Service ===
 	c.HealthService = c.buildHealthService()
-
-	// === Services ===
 	c.Services = c.buildServices()
-
-	// === Handlers ===
 	c.Handlers = c.buildHandlers()
 
 	return c, nil
 }
 
-func (c *Container) buildHealthService() *health.Service {
-	svc := health.NewService(5 * time.Second)
+// initInfrastructure opens the external resources the app depends on.
+func (c *Container) initInfrastructure(opts Options) error {
+	cfg := c.Config
+	log := c.Logger.Sugar()
 
-	// Register database checker
+	db, err := database.NewPostgresDatabase(cfg.Database.URL)
+	if err != nil {
+		return fmt.Errorf("connect to database: %w", err)
+	}
+	c.DB = db
+	c.onClose(func() error {
+		sqlDB, err := db.DB()
+		if err != nil {
+			return fmt.Errorf("get sql database handle: %w", err)
+		}
+		return sqlDB.Close()
+	})
+
+	c.Store = store.NewStore(repository.NewStore(db, c.Logger))
+	c.JWT = jwt.NewJwt(jwt.Config{Secret: cfg.Auth.JwtSecret})
+
+	if opts.WithRedis && cfg.Redis.Enabled() {
+		redisClient, err := database.NewRedisClient(cfg.Redis.URL)
+		if err != nil {
+			return fmt.Errorf("connect to redis: %w", err)
+		}
+		c.RedisClient = redisClient
+		c.Cache = cache.NewRedisCache(redisClient)
+		c.onClose(redisClient.Close)
+		log.Infow("redis initialized")
+	}
+
+	if opts.WithStorage && cfg.Storage.Enabled() {
+		fileStorage, err := storage.NewFileStorage(cfg.Storage.Provider, cfg.Storage.StorageConfig)
+		if err != nil {
+			return fmt.Errorf("initialize storage: %w", err)
+		}
+		c.Storage = fileStorage
+		log.Infow("storage initialized", "provider", cfg.Storage.Provider, "bucket", cfg.Storage.BucketName)
+	}
+
+	if opts.WithMetrics {
+		c.Metrics = metrics.NewPrometheusMetrics()
+	}
+
+	if cfg.RateLimiter.Enabled {
+		c.RateLimiter = ratelimiter.NewTokenBucketLimiter(ratelimiter.Config{
+			RequestsPerTimeFrame: cfg.RateLimiter.RequestsPerTimeFrame,
+			TimeFrame:            cfg.RateLimiter.TimeFrame,
+		})
+		log.Infow("rate limiter enabled",
+			"requests", cfg.RateLimiter.RequestsPerTimeFrame,
+			"per", cfg.RateLimiter.TimeFrame,
+		)
+	}
+
+	return nil
+}
+
+// buildHealthService registers a readiness check per external dependency.
+//
+// Object storage is deliberately left out: the client validates connectivity at
+// initialization and handles errors per request, so a periodic check would only
+// add latency to the readiness probe.
+func (c *Container) buildHealthService() *health.Service {
+	svc := health.NewService(healthCheckTimeout)
 	svc.RegisterChecker(health.NewDatabaseChecker(c.DB))
 
-	// Register Redis checker if available
 	if c.RedisClient != nil {
 		svc.RegisterChecker(health.NewRedisChecker(c.RedisClient))
 	}
-
-	// Note: Storage health checking is intentionally omitted because storage clients
-	// handle connection errors internally and the storage layer validates connectivity
-	// at initialization. Adding a runtime health check would be redundant.
 
 	return svc
 }
 
 func (c *Container) buildServices() *Services {
-	baseService := service.NewService(c.Logger)
-	serviceBase := services.NewService(baseService, c.Store, c.Config)
+	base := services.NewService(service.NewService(c.Logger), c.Store, c.Config)
 
-	// Create UserService first, then AuthService that depends on it.
-	// AuthService requires UserService to fetch user details during authentication flows.
-	// This ordering is necessary because AuthService.LoginWithPassword calls UserService methods.
-	userService := services.NewUserService(serviceBase)
-	authService := services.NewAuthService(serviceBase, userService, c.JWT)
+	// AuthService reads user records through UserService during login and
+	// registration, so UserService has to exist first.
+	userService := services.NewUserService(base)
 
 	return &Services{
 		User: userService,
-		Auth: authService,
+		Auth: services.NewAuthService(base, userService, c.JWT),
 	}
 }
 
 func (c *Container) buildHandlers() *Handlers {
-	baseHandler := handler.NewHandler(c.Logger)
+	base := handler.NewHandler(c.Logger)
 
 	return &Handlers{
-		Health: handler.NewHealthHandler(baseHandler, c.HealthService),
-		Auth:   handlers.NewAuthHandler(baseHandler, c.Services.Auth),
+		Health: handler.NewHealthHandler(base, c.HealthService),
+		Auth:   handlers.NewAuthHandler(base, c.Services.Auth),
 	}
 }
 
-// Cleanup releases resources. Call with defer.
-func (c *Container) Cleanup() {
-	// Close database connection
-	if c.DB != nil {
-		sqlDB, err := c.DB.DB()
-		if err == nil {
-			if closeErr := sqlDB.Close(); closeErr != nil {
-				c.Logger.Error("Failed to close database connection", zap.Error(closeErr))
-			}
-		}
+// onClose registers a cleanup function to run on Close.
+func (c *Container) onClose(fn func() error) {
+	c.closers = append(c.closers, fn)
+}
+
+// Close releases every resource the container holds, in reverse order of
+// acquisition, and returns all failures joined together. It is idempotent.
+func (c *Container) Close() error {
+	var errs []error
+
+	for i := len(c.closers) - 1; i >= 0; i-- {
+		errs = append(errs, c.closers[i]())
 	}
+	c.closers = nil
 
-	// Close Redis connection
-	if c.RedisClient != nil {
-		if err := c.RedisClient.Close(); err != nil {
-			c.Logger.Error("Failed to close Redis connection", zap.Error(err))
-		}
-	}
-
-	// Sync logger
-	c.Logger.Sync()
+	return errors.Join(errs...)
 }
 
-// HasCache returns true if cache is available.
-func (c *Container) HasCache() bool {
-	return c.Cache != nil
-}
+// HasCache reports whether a cache is available.
+func (c *Container) HasCache() bool { return c.Cache != nil }
 
-// HasStorage returns true if storage is available.
-func (c *Container) HasStorage() bool {
-	return c.Storage != nil
-}
+// HasStorage reports whether object storage is available.
+func (c *Container) HasStorage() bool { return c.Storage != nil }

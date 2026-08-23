@@ -1,78 +1,94 @@
+// Package bootstrap assembles the API: it loads the configuration, wires every
+// dependency into a Container, builds the router and returns a runnable App.
 package bootstrap
 
 import (
 	"fmt"
+	"io"
+	"os"
+	"strings"
 
-	"github.com/gin-gonic/gin"
 	"github.com/imlargo/medusa/internal/config"
 	"github.com/imlargo/medusa/pkg/medusa/core/app"
 	"github.com/imlargo/medusa/pkg/medusa/core/server/http"
 	"github.com/imlargo/medusa/pkg/medusa/tools"
 )
 
-// App wraps the Medusa app with its container.
+// App is a Medusa application together with the container holding its
+// dependencies. Close releases them once Run returns.
 type App struct {
 	*app.App
+
 	Container *Container
 }
 
-// New creates a fully configured application.
-// Uses DefaultOptions (all features enabled).
+// New builds a fully featured application: database, Redis, object storage and
+// metrics, as far as the environment configures them.
 func New(name string) (*App, error) {
 	return NewWithOptions(name, DefaultOptions())
 }
 
-// NewMinimal creates a lightweight application.
-// Only database and JWT, no Redis/Storage/Metrics.
+// NewMinimal builds a lightweight application with only the database and JWT.
 func NewMinimal(name string) (*App, error) {
 	return NewWithOptions(name, MinimalOptions())
 }
 
-// NewWithOptions creates an application with custom options.
+// NewWithOptions builds an application with an explicit set of optional
+// components. It returns an error if the configuration is invalid or any
+// required dependency is unreachable.
 func NewWithOptions(name string, opts Options) (*App, error) {
-	// Load config
-	cfg := config.LoadConfig()
-
-	// Build container with all dependencies
-	container, err := NewContainer(&cfg, opts)
+	cfg, err := config.Load()
 	if err != nil {
-		return nil, fmt.Errorf("failed to initialize: %w", err)
+		return nil, err
 	}
 
-	// Setup router
-	router := gin.Default()
-	SetupRoutes(router, container)
+	container, err := NewContainer(cfg, opts)
+	if err != nil {
+		return nil, fmt.Errorf("initialize %s: %w", name, err)
+	}
 
-	// Create HTTP server
-	srv := http.NewServer(
-		router,
+	server := http.NewServer(
+		newRouter(container),
 		container.Logger,
 		http.WithServerHost(cfg.Server.Host),
 		http.WithServerPort(cfg.Server.Port),
 	)
 
-	// Create Medusa app
-	medusaApp := app.NewApp(
-		app.WithName(name),
-		app.WithServer(srv),
-	)
-
-	// Print banner
-	printBanner(name, &cfg)
+	printBanner(os.Stdout, name, cfg)
 
 	return &App{
-		App:       medusaApp,
+		App:       app.NewApp(app.WithName(name), app.WithServer(server)),
 		Container: container,
 	}, nil
 }
 
-func printBanner(name string, cfg *config.Config) {
-	fmt.Println("")
-	fmt.Println("🪼 Medusa")
-	fmt.Println("─────────────────────────────────")
-	fmt.Printf("   App:    %s\n", name)
-	fmt.Printf("   Server: %s\n", tools.GetFullAppUrl(cfg.Server.Host, cfg.Server.Port))
-	fmt.Printf("   Docs:   %s\n", tools.GetFullDocsUrl(cfg.Server.Host, cfg.Server.Port))
-	fmt.Println("─────────────────────────────────")
-	fmt.Println("")
+// Close releases every resource held by the application. Defer it right after
+// construction; calling it more than once is safe.
+func (a *App) Close() error {
+	if a == nil || a.Container == nil {
+		return nil
+	}
+	return a.Container.Close()
+}
+
+// printBanner writes a short startup summary with the URLs the app serves.
+func printBanner(w io.Writer, name string, cfg *config.Config) {
+	const separator = "─────────────────────────────────"
+
+	fields := [][2]string{
+		{"App", name},
+		{"Env", string(cfg.Environment)},
+		{"Server", tools.GetFullAppUrl(cfg.Server.Host, cfg.Server.Port)},
+		{"Docs", tools.GetFullDocsUrl(cfg.Server.Host, cfg.Server.Port)},
+	}
+
+	var banner strings.Builder
+	fmt.Fprintf(&banner, "\n🪼 Medusa\n%s\n", separator)
+	for _, field := range fields {
+		fmt.Fprintf(&banner, "   %-7s %s\n", field[0]+":", field[1])
+	}
+	fmt.Fprintf(&banner, "%s\n\n", separator)
+
+	// Nothing actionable if the banner cannot be written.
+	_, _ = io.WriteString(w, banner.String())
 }

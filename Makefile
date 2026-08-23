@@ -1,4 +1,4 @@
-.PHONY: docs format run build vet
+.PHONY: dev run test coverage lint vet format docs build clean
 
 SWAG_BIN=~/go/bin/swag
 MAIN_FILE=cmd/api/main.go

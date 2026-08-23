@@ -119,33 +119,49 @@ package main
 
 import (
     "context"
-    "log"
+    "errors"
+    "fmt"
+    "os"
+
     "github.com/imlargo/medusa/cmd/api/bootstrap"
 )
 
 func main() {
-    // Bootstrap handles all dependency wiring
-    app, err := bootstrap.New("medusa-api")
-    if err != nil {
-        log.Fatal(err)
+    if err := run(context.Background()); err != nil {
+        fmt.Fprintf(os.Stderr, "medusa-api: %v\n", err)
+        os.Exit(1)
     }
-    defer app.Container.Cleanup()
+}
 
-    // Run with graceful shutdown and error handling
-    if err := app.Run(context.Background()); err != nil {
-        log.Fatal(err)
+// run owns the lifecycle so shutdown always happens: os.Exit — and therefore
+// log.Fatal — would skip every deferred call.
+func run(ctx context.Context) (err error) {
+    // Bootstrap loads the config and wires every dependency.
+    app, appErr := bootstrap.New("medusa-api")
+    if appErr != nil {
+        return appErr
     }
+    defer func() {
+        err = errors.Join(err, app.Close())
+    }()
+
+    // Run blocks until SIGINT/SIGTERM, then shuts down gracefully.
+    return app.Run(ctx)
 }
 ```
 
 The bootstrap system automatically configures:
 - Database connection with connection pooling
 - Optional Redis for caching
+- Optional object storage (S3/R2)
 - JWT authentication
-- Health checks (liveness + readiness)
-- Structured logging
-- Metrics collection
-- Rate limiting (if enabled)
+- Health checks (liveness at `/health`, readiness at `/ready`)
+- Structured request logging
+- Prometheus metrics at `/metrics` (restrict this at your ingress)
+- Rate limiting over the whole `/v1` group, public endpoints included
+
+`app.Close()` releases every resource in reverse order of acquisition and
+returns the failures joined together.
 
 ### Enhanced Context Usage
 
@@ -543,33 +559,46 @@ func (r *userRepository) FindByID(ctx context.Context, id uint) (*User, error) {
 
 Medusa uses environment variables for configuration.  Create a `.env` file:
 
+`internal/config` reads every variable once at startup, applies the defaults
+below and reports **all** problems in a single error, so a bad deployment fails
+immediately with the complete list.
+
 ```bash
+# Environment: development | staging | production
+# production enables Gin release mode and requires a JWT_SECRET of 32+ chars.
+APP_ENV=development
+
 # Server
-SERVER_HOST=localhost
-SERVER_PORT=8080
+HOST=localhost
+PORT=8000
 
-# Database
-DATABASE_URL=postgres://user:password@localhost:5432/dbname? sslmode=disable
+# Database (required)
+DATABASE_URL=postgres://user:password@localhost:5432/dbname?sslmode=disable
 
-# Redis
+# Redis - optional, leave empty to run without cache
 REDIS_URL=redis://localhost:6379
 
-# JWT
+# JWT (JWT_SECRET is required). Expirations are Go durations: 15m, 24h, 168h...
 JWT_SECRET=your-secret-key-change-this
+JWT_ISSUER=medusa
 JWT_TOKEN_EXPIRATION=15m
 JWT_REFRESH_EXPIRATION=168h
 
-# Rate Limiting
+# CORS - comma separated. The server host is always allowed.
+CORS_ALLOWED_ORIGINS=https://app.example.com,https://admin.example.com
+
+# Rate limiting (applies to the whole /v1 group, public endpoints included)
 RATE_LIMITER_ENABLED=true
 RATE_LIMITER_REQUESTS_PER_TIME_FRAME=100
-RATE_LIMITER_TIME_FRAME=60s
+RATE_LIMITER_TIME_FRAME=1m
 
-# Storage (S3/R2)
+# Storage (S3/R2) - optional. Set the bucket plus all three credentials, or none.
 STORAGE_PROVIDER=r2
+STORAGE_BUCKET_NAME=your_bucket
 STORAGE_ACCOUNT_ID=your_account_id
 STORAGE_ACCESS_KEY_ID=your_access_key
 STORAGE_SECRET_ACCESS_KEY=your_secret_key
-STORAGE_BUCKET_NAME=your_bucket
+STORAGE_PUBLIC_DOMAIN=cdn.example.com
 STORAGE_USE_PUBLIC_URL=true
 
 # Email (Resend)
@@ -578,6 +607,25 @@ RESEND_API_KEY=re_your_api_key
 # RabbitMQ
 RABBITMQ_URL=amqp://guest:guest@localhost:5672/
 ```
+
+### Defaults
+
+| Variable | Default | Notes |
+|---|---|---|
+| `APP_ENV` | `development` | |
+| `HOST` / `PORT` | `localhost` / `8000` | |
+| `DATABASE_URL` | — | Required |
+| `JWT_SECRET` | — | Required; 32+ chars in production |
+| `JWT_ISSUER` | `medusa` | |
+| `JWT_TOKEN_EXPIRATION` | `15m` | Must be shorter than the refresh expiration |
+| `JWT_REFRESH_EXPIRATION` | `168h` | |
+| `REDIS_URL` | empty | Empty disables the cache |
+| `CORS_ALLOWED_ORIGINS` | empty | |
+| `RATE_LIMITER_ENABLED` | `true` | |
+| `RATE_LIMITER_REQUESTS_PER_TIME_FRAME` | `100` | |
+| `RATE_LIMITER_TIME_FRAME` | `1m` | |
+| `STORAGE_PROVIDER` | `r2` | |
+| `STORAGE_BUCKET_NAME` | empty | Empty disables storage |
 
 ---
 

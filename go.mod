@@ -1,6 +1,6 @@
 module github.com/imlargo/medusa
 
-go 1.25.4
+go 1.27.0
 
 require (
 	github.com/SherClockHolmes/webpush-go v1.4.0
