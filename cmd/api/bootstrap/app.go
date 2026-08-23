@@ -61,6 +61,9 @@ func NewWithOptions(name string, opts Options) (*App, error) {
 			app.WithName(name),
 			app.WithServer(server),
 			app.WithLogger(container.Logger),
+			// Runs before the HTTP server stops, so open SSE streams end on
+			// their own instead of holding the shutdown open.
+			app.WithOnStop(container.DrainEventStreams),
 		),
 		Container: container,
 	}, nil

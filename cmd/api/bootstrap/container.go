@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"time"
@@ -34,6 +35,11 @@ const (
 	// eventRetention is how long a published event stays replayable, which is
 	// the window a reconnecting client can resume from without losing events.
 	eventRetention = 5 * time.Minute
+
+	// eventDrainTimeout bounds how long shutdown waits for open SSE streams to
+	// end. It is spent before the HTTP server's own shutdown window, so the two
+	// together have to fit inside the orchestrator's termination grace period.
+	eventDrainTimeout = 5 * time.Second
 )
 
 // Container holds every dependency of the application.
@@ -60,6 +66,11 @@ type Container struct {
 	// Events publishes server-sent events. Always present: it is in-memory and
 	// costs nothing until something subscribes.
 	Events *sse.Broker
+
+	// EventsLifecycle tracks open SSE sessions so they can be drained together
+	// on shutdown. Without it they would be drained one connection at a time by
+	// the HTTP server's timeout, which is to say not at all.
+	EventsLifecycle *sse.Lifecycle
 
 	HealthService *health.Service
 
@@ -171,6 +182,7 @@ func (c *Container) initInfrastructure(opts Options) error {
 	c.JWT = jwtAuth
 
 	c.Events = sse.NewBroker("events", sse.NewMemoryLog(sse.Retention{For: eventRetention}))
+	c.EventsLifecycle = sse.NewLifecycle()
 
 	if opts.WithRedis && cfg.Redis.Enabled() {
 		redisClient, err := database.NewRedisClient(cfg.Redis.URL)
@@ -254,8 +266,37 @@ func (c *Container) buildHandlers() *Handlers {
 	return &Handlers{
 		Health: handler.NewHealthHandler(base, c.HealthService),
 		Auth:   handlers.NewAuthHandler(base, c.Services.Auth),
-		Events: handlers.NewEventsHandler(base, c.Events, c.JWT),
+		Events: handlers.NewEventsHandler(base, c.Events, c.EventsLifecycle, c.JWT),
 	}
+}
+
+// DrainEventStreams ends every open SSE session.
+//
+// It has to run before the HTTP server shuts down, which is why it is wired as
+// an onStop hook rather than a Close closer: an SSE response never completes on
+// its own, and http.Server.Shutdown waits for in-flight requests. Without this,
+// every deploy with a connected client would stall for the server's full
+// shutdown timeout and then cut the streams anyway.
+func (c *Container) DrainEventStreams(ctx context.Context) error {
+	if c.EventsLifecycle == nil {
+		return nil
+	}
+
+	open := c.EventsLifecycle.NodeSessionCount()
+	if open == 0 {
+		return nil
+	}
+
+	c.Logger.Sugar().Infow("draining event streams", "open", open, "timeout", eventDrainTimeout)
+
+	drainCtx, cancel := context.WithTimeout(ctx, eventDrainTimeout)
+	defer cancel()
+
+	if err := c.EventsLifecycle.Shutdown(drainCtx); err != nil {
+		return fmt.Errorf("drain event streams: %w", err)
+	}
+
+	return nil
 }
 
 // onClose registers a cleanup function to run on Close.

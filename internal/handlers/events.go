@@ -21,16 +21,19 @@ import (
 type EventsHandler struct {
 	*handler.Handler
 
-	broker *sse.Broker
-	jwt    *jwt.JWT
+	broker    *sse.Broker
+	lifecycle *sse.Lifecycle
+	jwt       *jwt.JWT
 }
 
-// NewEventsHandler wires a handler onto an existing broker.
-func NewEventsHandler(base *handler.Handler, broker *sse.Broker, jwtAuth *jwt.JWT) *EventsHandler {
+// NewEventsHandler wires a handler onto an existing broker. The lifecycle is
+// what lets shutdown drain open streams instead of severing them.
+func NewEventsHandler(base *handler.Handler, broker *sse.Broker, lifecycle *sse.Lifecycle, jwtAuth *jwt.JWT) *EventsHandler {
 	return &EventsHandler{
-		Handler: base,
-		broker:  broker,
-		jwt:     jwtAuth,
+		Handler:   base,
+		broker:    broker,
+		lifecycle: lifecycle,
+		jwt:       jwtAuth,
 	}
 }
 
@@ -48,7 +51,10 @@ func UserTopic(userID uint, kind string) sse.Topic {
 // token's own expiry, so a session ends when the credential does instead of
 // outliving it.
 func (h *EventsHandler) Stream() gin.HandlerFunc {
-	return gin.WrapH(h.broker.Handler(sse.WithAuthorizer(h.authorize)))
+	return gin.WrapH(h.broker.Handler(
+		sse.WithAuthorizer(h.authorize),
+		sse.WithLifecycle(h.lifecycle),
+	))
 }
 
 // authorize resolves the caller's identity from their token and confines them to
