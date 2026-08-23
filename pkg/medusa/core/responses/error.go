@@ -1,232 +1,225 @@
 package responses
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 )
 
-// requestIDContextKey is the context key for storing the request ID.
-const requestIDContextKey = "medusa_request_id"
-
-// extractRequestID extracts the request ID from the Gin context if available.
-func extractRequestID(c *gin.Context) string {
-	if id, exists := c.Get(requestIDContextKey); exists {
-		if strID, ok := id.(string); ok {
-			return strID
-		}
-	}
-	return ""
-}
-
-// ErrorCode represents a machine-readable error code for API errors.
-// These codes help clients programmatically handle different error scenarios.
-// Error codes should remain stable across API versions for backward compatibility.
+// ErrorCode is a machine-readable error code clients can branch on.
+// Codes are part of the API contract and must stay stable across versions.
 type ErrorCode string
 
-// Standard error codes used throughout the application.
 const (
-	// ErrCodeBadRequest indicates the request was malformed or contained invalid parameters.
-	// Returns HTTP 400 status code.
+	// ErrCodeBadRequest: the request was malformed or carried invalid parameters (400).
 	ErrCodeBadRequest ErrorCode = "BAD_REQUEST"
 
-	// ErrCodeBindJson indicates a JSON binding/validation error.
-	// This typically occurs when request body cannot be parsed or validated.
-	// Returns HTTP 400 status code.
-	ErrCodeBindJson ErrorCode = "BIND_JSON"
+	// ErrCodeValidation: the body parsed but failed validation (400).
+	// Details carries a field-to-message map.
+	ErrCodeValidation ErrorCode = "VALIDATION_FAILED"
 
-	// ErrCodeUnauthorized indicates authentication is required or has failed.
-	// Returns HTTP 401 status code.
+	// ErrCodeUnauthorized: authentication is required, missing or invalid (401).
 	ErrCodeUnauthorized ErrorCode = "UNAUTHORIZED"
 
-	// ErrCodeForbidden indicates the client does not have permission to access the resource.
-	// Returns HTTP 403 status code.
+	// ErrCodeForbidden: authenticated but not allowed to touch this resource (403).
 	ErrCodeForbidden ErrorCode = "FORBIDDEN"
 
-	// ErrCodeNotFound indicates a requested resource was not found.
-	// Returns HTTP 404 status code.
+	// ErrCodeNotFound: the requested resource does not exist (404).
 	ErrCodeNotFound ErrorCode = "NOT_FOUND"
 
-	// ErrCodeConflict indicates a conflict with the current state of the resource.
-	// Returns HTTP 409 status code. Typically used for duplicate entries.
+	// ErrCodeConflict: the request conflicts with the resource's current state (409).
 	ErrCodeConflict ErrorCode = "CONFLICT"
 
-	// ErrCodeTooManyRequests indicates the client has exceeded the rate limit.
-	// Returns HTTP 429 status code. Response should include retry-after information.
+	// ErrCodeTooManyRequests: the client exceeded its rate limit (429).
 	ErrCodeTooManyRequests ErrorCode = "TOO_MANY_REQUESTS"
 
-	// ErrCodeInternalServer indicates an unexpected server error.
-	// Returns HTTP 500 status code. Details should not expose sensitive information.
+	// ErrCodeInternalServer: an unexpected server-side failure (500).
+	// The underlying cause is logged, never sent to the client.
 	ErrCodeInternalServer ErrorCode = "INTERNAL_SERVER_ERROR"
 
-	// ErrCodeServiceUnavailable indicates the service is temporarily unavailable.
-	// Returns HTTP 503 status code. Used for maintenance or temporary outages.
+	// ErrCodeServiceUnavailable: a dependency is down or the app is draining (503).
 	ErrCodeServiceUnavailable ErrorCode = "SERVICE_UNAVAILABLE"
 )
 
-// ErrorResponse represents a standardized error HTTP response.
-// It includes the HTTP status code, a machine-readable error code,
-// a human-readable error message, optional error details, and request ID for tracing.
-//
-// Error Response Format:
-//
-//	{
-//	    "status": 400,
-//	    "code": "BAD_REQUEST",
-//	    "error": "Invalid email format",
-//	    "details": {...},
-//	    "request_id": "550e8400-e29b-41d4-a716-446655440000"
-//	}
+// ErrorResponse is the JSON body of every failed request.
 type ErrorResponse struct {
-	Status    int         `json:"status"`               // HTTP status code (e.g., 400, 404, 500)
-	Code      ErrorCode   `json:"code"`                 // Machine-readable error code
-	Error     string      `json:"error"`                // Human-readable error message
-	Details   interface{} `json:"details,omitempty"`    // Optional error details (e.g., validation errors)
-	RequestID string      `json:"request_id,omitempty"` // Request ID for tracing (if available)
+	Status    int       `json:"status"`               // HTTP status code
+	Code      ErrorCode `json:"code"`                 // Machine-readable code
+	Error     string    `json:"error"`                // Human-readable message
+	Details   any       `json:"details,omitempty"`    // Field errors or extra context
+	RequestID string    `json:"request_id,omitempty"` // Correlation ID, when available
 }
 
-// ErrorBindJson writes a 400 Bad Request response for JSON binding errors.
-// Use this when request body cannot be parsed or validated against the expected structure.
+// Error is an application error carrying everything needed to render an HTTP
+// response: the status, a stable code, a client-safe message and optional
+// details. It is the only error type handlers need to construct.
 //
-// Example:
-//
-//	var req CreateUserRequest
-//	if err := c.ShouldBindJSON(&req); err != nil {
-//	    responses.ErrorBindJson(c, err)
-//	    return
-//	}
-func ErrorBindJson(c *gin.Context, err error) {
-	WriteErrorResponse(c, http.StatusBadRequest, ErrCodeBindJson, err.Error(), nil)
+// Internal holds the underlying cause. It is never serialized — it reaches the
+// access log instead, so a 500 can be diagnosed without leaking internals to the
+// caller. Use the constructors below rather than building one by hand.
+type Error struct {
+	Code     ErrorCode `json:"code"`
+	Message  string    `json:"message"`
+	Status   int       `json:"-"`
+	Details  any       `json:"details,omitempty"`
+	Internal error     `json:"-"`
 }
 
-// ErrorNotFound writes a 404 Not Found response for a specific model/resource.
-// Use this when a requested resource does not exist.
-//
-// Example:
-//
-//	user, err := db.FindUser(id)
-//	if err != nil {
-//	    responses.ErrorNotFound(c, "user")
-//	    return
-//	}
-func ErrorNotFound(c *gin.Context, model string) {
-	WriteErrorResponse(c, http.StatusNotFound, ErrCodeNotFound, model+" not found", nil)
+// Error implements the error interface. It includes the internal cause, so this
+// string is safe for logs but not for clients — clients get Message.
+func (e *Error) Error() string {
+	if e.Internal != nil {
+		return fmt.Sprintf("%s: %v", e.Message, e.Internal)
+	}
+	return e.Message
 }
 
-// ErrorInternalServer writes a 500 Internal Server Error response.
-// Use this for unexpected server errors. Be careful not to expose sensitive details.
-//
-// Example:
-//
-//	if err := db.Save(user); err != nil {
-//	    log.Error("Database error", zap.Error(err))
-//	    responses.ErrorInternalServer(c, nil)
-//	    return
-//	}
-func ErrorInternalServer(c *gin.Context, details interface{}) {
-	WriteErrorResponse(c, http.StatusInternalServerError, ErrCodeInternalServer, "internal server error", details)
+// Unwrap exposes the internal cause to errors.Is and errors.As.
+func (e *Error) Unwrap() error { return e.Internal }
+
+// WithDetails attaches details and returns the same error for chaining.
+func (e *Error) WithDetails(details any) *Error {
+	e.Details = details
+	return e
 }
 
-// ErrorInternalServerWithMessage writes a 500 Internal Server Error response with a custom message.
-// Use this when you want to provide more context about the error while still indicating a server error.
-//
-// Example:
-//
-//	responses.ErrorInternalServerWithMessage(c, "Failed to process payment", nil)
-func ErrorInternalServerWithMessage(c *gin.Context, message string, details interface{}) {
-	WriteErrorResponse(c, http.StatusInternalServerError, ErrCodeInternalServer, message, details)
+// BadRequest reports a malformed request (400).
+func BadRequest(message string) *Error {
+	return &Error{Code: ErrCodeBadRequest, Message: message, Status: http.StatusBadRequest}
 }
 
-// ErrorBadRequest writes a 400 Bad Request response with a custom message.
-// Use this for client errors where the request is malformed or contains invalid data.
-//
-// Example:
-//
-//	if age < 18 {
-//	    responses.ErrorBadRequest(c, "User must be at least 18 years old")
-//	    return
-//	}
-func ErrorBadRequest(c *gin.Context, message string) {
-	WriteErrorResponse(c, http.StatusBadRequest, ErrCodeBadRequest, message, nil)
+// Validation reports a body that parsed but failed validation (400).
+// details is typically a field-to-message map.
+func Validation(message string, details any) *Error {
+	return &Error{Code: ErrCodeValidation, Message: message, Status: http.StatusBadRequest, Details: details}
 }
 
-// ErrorTooManyRequests writes a 429 Too Many Requests response.
-// Use this when a client has exceeded the rate limit. The message should include
-// information about when to retry.
-//
-// Example:
-//
-//	responses.ErrorTooManyRequests(c, "Rate limit exceeded. Try again in 60 seconds")
-func ErrorTooManyRequests(c *gin.Context, message string) {
-	WriteErrorResponse(c, http.StatusTooManyRequests, ErrCodeTooManyRequests, message, nil)
+// Unauthorized reports missing or invalid authentication (401).
+func Unauthorized(message string) *Error {
+	return &Error{Code: ErrCodeUnauthorized, Message: message, Status: http.StatusUnauthorized}
 }
 
-// ErrorUnauthorized writes a 401 Unauthorized response.
-// Use this when authentication is required but missing or invalid.
-//
-// Example:
-//
-//	token := c.GetHeader("Authorization")
-//	if token == "" {
-//	    responses.ErrorUnauthorized(c, "Authorization header is required")
-//	    return
-//	}
-func ErrorUnauthorized(c *gin.Context, message string) {
-	WriteErrorResponse(c, http.StatusUnauthorized, ErrCodeUnauthorized, message, nil)
+// Forbidden reports an authenticated caller without permission (403).
+func Forbidden(message string) *Error {
+	return &Error{Code: ErrCodeForbidden, Message: message, Status: http.StatusForbidden}
 }
 
-// ErrorForbidden writes a 403 Forbidden response.
-// Use this when the authenticated user does not have permission to access the resource.
-//
-// Example:
-//
-//	if !user.IsAdmin() {
-//	    responses.ErrorForbidden(c, "Admin access required")
-//	    return
-//	}
-func ErrorForbidden(c *gin.Context, message string) {
-	WriteErrorResponse(c, http.StatusForbidden, ErrCodeForbidden, message, nil)
+// NotFound reports a missing resource (404). resource names what was looked up,
+// for example "user".
+func NotFound(resource string) *Error {
+	return &Error{Code: ErrCodeNotFound, Message: resource + " not found", Status: http.StatusNotFound}
 }
 
-// ErrorConflict writes a 409 Conflict response.
-// Use this when there is a conflict with the current state of the resource.
-//
-// Example:
-//
-//	if existingUser != nil {
-//	    responses.ErrorConflict(c, "User with this email already exists")
-//	    return
-//	}
-func ErrorConflict(c *gin.Context, message string) {
-	WriteErrorResponse(c, http.StatusConflict, ErrCodeConflict, message, nil)
+// Conflict reports a clash with the resource's current state (409).
+func Conflict(message string) *Error {
+	return &Error{Code: ErrCodeConflict, Message: message, Status: http.StatusConflict}
 }
 
-// ErrorServiceUnavailable writes a 503 Service Unavailable response.
-// Use this when the service is temporarily unavailable due to maintenance or overload.
-//
-// Example:
-//
-//	responses.ErrorServiceUnavailable(c, "Service is under maintenance")
-func ErrorServiceUnavailable(c *gin.Context, message string) {
-	WriteErrorResponse(c, http.StatusServiceUnavailable, ErrCodeServiceUnavailable, message, nil)
+// TooManyRequests reports an exhausted rate limit (429), telling the client how
+// many seconds to wait.
+func TooManyRequests(retryAfterSeconds int) *Error {
+	return &Error{
+		Code:    ErrCodeTooManyRequests,
+		Message: "rate limit exceeded",
+		Status:  http.StatusTooManyRequests,
+		Details: map[string]int{"retry_after_seconds": retryAfterSeconds},
+	}
 }
 
-// WriteErrorResponse writes an error JSON response with the given parameters.
-// This is a low-level function; prefer using the helper functions like ErrorBadRequest
-// or ErrorNotFound for common use cases.
+// Internal reports an unexpected failure (500). The cause is logged; the client
+// only ever sees a generic message.
+func Internal(cause error) *Error {
+	return &Error{
+		Code:     ErrCodeInternalServer,
+		Message:  "an internal error occurred",
+		Status:   http.StatusInternalServerError,
+		Internal: cause,
+	}
+}
+
+// InternalWithMessage is Internal with a client-safe message of your own.
+// Never pass raw error text: it is the most common way internals leak.
+func InternalWithMessage(message string, cause error) *Error {
+	return &Error{
+		Code:     ErrCodeInternalServer,
+		Message:  message,
+		Status:   http.StatusInternalServerError,
+		Internal: cause,
+	}
+}
+
+// ServiceUnavailable reports a dependency being down or the app draining (503).
+func ServiceUnavailable(message string) *Error {
+	return &Error{Code: ErrCodeServiceUnavailable, Message: message, Status: http.StatusServiceUnavailable}
+}
+
+// From converts any error into an *Error.
 //
-// Parameters:
-//   - c: The Gin context
-//   - status: HTTP status code (e.g., http.StatusBadRequest)
-//   - code: Machine-readable error code
-//   - message: Human-readable error message
-//   - details: Optional error details (can be nil)
-func WriteErrorResponse(c *gin.Context, status int, code ErrorCode, message string, details interface{}) {
-	c.JSON(status, ErrorResponse{
-		Status:    status,
-		Code:      code,
-		Error:     message,
-		Details:   details,
-		RequestID: extractRequestID(c),
+// An *Error anywhere in the chain is returned as-is, so a wrapped domain error
+// keeps its status and code. Anything else becomes a 500 with the original error
+// as the internal cause, which is the safe default: an error nobody classified
+// is not something to describe to a client.
+func From(err error) *Error {
+	if err == nil {
+		return nil
+	}
+
+	var appErr *Error
+	if errors.As(err, &appErr) {
+		return appErr
+	}
+
+	return Internal(err)
+}
+
+// Wrap adds context to an error while preserving its classification. A wrapped
+// *Error keeps its status, code and details; anything else becomes a 500.
+func Wrap(err error, message string) *Error {
+	var appErr *Error
+	if errors.As(err, &appErr) {
+		return &Error{
+			Code:     appErr.Code,
+			Message:  message,
+			Status:   appErr.Status,
+			Details:  appErr.Details,
+			Internal: err,
+		}
+	}
+
+	return InternalWithMessage(message, err)
+}
+
+// WriteError renders err as the response, deriving the status from the error
+// itself. Any error is accepted; unclassified ones become a 500.
+//
+// When the error carries an internal cause, it is also handed to Gin's error
+// list so the access-log middleware records why the request failed. That is the
+// only place the cause appears: it is never serialized to the client.
+func WriteError(c *gin.Context, err error) {
+	appErr := From(err)
+	if appErr == nil {
+		return
+	}
+
+	if appErr.Internal != nil {
+		// Recorded for the access log, not for the response body.
+		_ = c.Error(appErr.Internal)
+	}
+
+	c.JSON(appErr.Status, ErrorResponse{
+		Status:    appErr.Status,
+		Code:      appErr.Code,
+		Error:     appErr.Message,
+		Details:   appErr.Details,
+		RequestID: requestID(c),
 	})
+}
+
+// AbortWithError renders err and stops the middleware chain. Middleware should
+// use this; a handler that simply returns its error does not need it.
+func AbortWithError(c *gin.Context, err error) {
+	WriteError(c, err)
+	c.Abort()
 }
