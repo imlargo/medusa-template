@@ -75,10 +75,8 @@ Medusa is a **production-ready framework** for Go that eliminates the tedious se
 
 - **💾 Cache** Redis-backed distributed caching with clean interface
 - **📦 Storage** Multi-provider file storage (S3, Cloudflare R2) with presigned URLs
-- **📧 Email** Transactional email via Resend
 - **🔔 Push Notifications** Web Push API integration
 - **📡 Server-Sent Events** Real-time server-to-client streaming with client management
-- **🐰 PubSub** RabbitMQ message queue with publisher/subscriber pattern
 - **🗃️ Database** PostgreSQL with GORM and automatic migrations
 
 ---
@@ -90,7 +88,6 @@ Medusa is a **production-ready framework** for Go that eliminates the tedious se
 - Go 1.21 or higher
 - PostgreSQL 14+
 - Redis 7+
-- (Optional) RabbitMQ for message queues
 
 ### Installation
 
@@ -231,7 +228,7 @@ func main() {
 
     // Define your routes
     router.GET("/ping", func(c *gin.Context) {
-        responses.SuccessOK(c, gin. H{"message": "pong"})
+        responses.WriteSuccess(c, http.StatusOK, responses.MessageOK, gin.H{"message": "pong"})
     })
 
     // Run with graceful shutdown
@@ -274,76 +271,77 @@ url, _ := storage.GetPresignedURL("documents/secret.pdf", 15*time.Minute)
 
 #### Real-time with Server-Sent Events
 
+SSE is provided by [github.com/imlargo/sse](https://github.com/imlargo/sse): a
+broker publishes to topics, subscribers pick what they want, and the library owns
+the write loop — headers, flushing, heartbeats, write deadlines, backpressure and
+resumption after a reconnect.
+
 ```go
-import "github.com/imlargo/medusa/pkg/medusa/services/sse"
+import "github.com/imlargo/sse"
 
-sseManager := sse. NewSSEManager()
+// One broker for the whole app. Events stay replayable for five minutes, which
+// is the window a reconnecting client can resume from.
+broker := sse.NewBroker("events", sse.NewMemoryLog(sse.Retention{For: 5 * time.Minute}))
 
-// Client connects
-router.GET("/stream", func(c *gin.Context) {
-    userID := getUserID(c)
-    deviceID := c.Query("device_id")
-    
-    client, _ := sseManager.Subscribe(c. Request.Context(), userID, deviceID)
-    
-    c.Header("Content-Type", "text/event-stream")
-    c.Header("Cache-Control", "no-cache")
-    
-    for {
-        select {
-        case msg := <-client. GetChannel():
-            c.SSEvent("message", msg)
-            c.Writer. Flush()
-        case <-c.Request.Context().Done():
-            return
-        }
+// The stream authenticates itself: the Authorizer runs on the raw request, so it
+// both identifies the caller and confines them to their own topics.
+router.GET("/v1/events", gin.WrapH(broker.Handler(sse.WithAuthorizer(authorize))))
+
+func authorize(r *http.Request) (sse.Grant, error) {
+    claims, err := jwtAuth.ParseToken(tokenFrom(r))
+    if err != nil {
+        return sse.Grant{}, sse.Unauthorized("invalid or expired token")
     }
-})
 
-// Send event to user (from anywhere in your app)
-sseManager.Send(userID, &sse. Message{
-    Event: "notification",
-    Data:  gin.H{"title": "New message", "body": "You have a new message"},
-})
+    return sse.Grant{
+        Identity: fmt.Sprintf("user:%d", claims.UserID),
+        Filters:  []sse.Filter{sse.MustFilter(fmt.Sprintf("user.%d.>", claims.UserID))},
+        // The session ends when the token does. The client reconnects with a
+        // fresh one and resumes from its cursor, so nothing is missed.
+        Deadline: claims.ExpiresAt.Time,
+    }, nil
+}
+
+// Publish from wherever the event happens. This never touches a subscriber, so a
+// slow client cannot slow down the publisher or anybody else.
+broker.Publish(ctx, sse.MustTopic("user.123.notifications"),
+    gin.H{"title": "New message"}, sse.Name("notification"))
 ```
 
-#### Background Jobs with PubSub
+See `internal/handlers/events.go` for the wired-up version, and the library's
+README for backpressure policies, topic routing and running across many nodes.
+
+#### Handlers return their result
+
+Handlers do not touch `*gin.Context` or write responses. They return a value and
+an error; the `medusa.Handle*` adapters bind and validate the body, pick the
+status and render the result, so that logic lives in one place instead of in
+every handler.
 
 ```go
-import "github.com/imlargo/medusa/pkg/medusa/services/pubsub"
+func (h *UserHandler) Create(ctx *medusa.Context, in *dto.NewUser) (*models.User, error) {
+    user, err := h.users.Create(ctx.Ctx(), in)
+    if errors.Is(err, ErrEmailTaken) {
+        return nil, responses.Conflict("email already registered")
+    }
+    return user, err
+}
 
-// Publisher
-publisher := pubsub.NewRabbitMQPublisher(config)
-publisher.Publish(ctx, "user.registered", UserRegisteredEvent{
-    UserID:  123,
-    Email:  "user@example.com",
-})
-
-// Subscriber
-subscriber := pubsub.NewRabbitMQSubscriber(config)
-subscriber.Subscribe(ctx, "user.registered", func(msg []byte) error {
-    var event UserRegisteredEvent
-    json.Unmarshal(msg, &event)
-    
-    // Send welcome email
-    sendWelcomeEmail(event. Email)
-    return nil
-})
+users.POST("", medusa.HandleCreate(h.Create))
 ```
 
-#### Send Email
+The status comes from the error itself, so returning `responses.NotFound("user")`
+produces a 404 without the handler naming a status code. An error nobody
+classified becomes a 500 whose cause reaches the log and never the client.
 
-```go
-import "github.com/imlargo/medusa/pkg/medusa/services/email"
-
-emailService := email.NewResendClient(apiKey)
-emailService.SendEmail(&email.SendEmailParams{
-    From:    "noreply@myapp.com",
-    To:      []string{"user@example.com"},
-    Subject: "Welcome to MyApp",
-    Html:    "<h1>Welcome! </h1><p>Thanks for joining. </p>",
-})
-```
+| Adapter | Reads body | Success |
+|---|---|---|
+| `medusa.Handle` | yes | 200 |
+| `medusa.HandleCreate` | yes | 201 |
+| `medusa.HandleUpdate` | yes | 200 |
+| `medusa.HandleGet` | no | 200 |
+| `medusa.HandleDelete` | no | 200 |
+| `medusa.Handler` | no | writes its own response |
 
 #### Health Checks
 
@@ -423,7 +421,6 @@ Medusa follows **Clean Architecture** principles with a pragmatic twist structur
     │   ├── cache/           # Redis cache
     │   ├── email/           # Email service
     │   ├── notification/    # Push notifications
-    │   ├── pubsub/          # Message queue
     │   ├── sse/             # Server-Sent Events
     │   └── storage/         # File storage
     │
@@ -466,7 +463,7 @@ func main() {
     db, _ := database.NewPostgresDatabase(os.Getenv("DATABASE_URL"))
     
     // JWT Auth
-    jwtAuth := jwt.NewJwt(jwt.Config{Secret: os.Getenv("JWT_SECRET")})
+    jwtAuth, err := jwt.NewJWT(jwt.Config{Secret: os.Getenv("JWT_SECRET")})
     
     // Public routes
     router.POST("/auth/register", RegisterHandler)
@@ -600,12 +597,6 @@ STORAGE_ACCESS_KEY_ID=your_access_key
 STORAGE_SECRET_ACCESS_KEY=your_secret_key
 STORAGE_PUBLIC_DOMAIN=cdn.example.com
 STORAGE_USE_PUBLIC_URL=true
-
-# Email (Resend)
-RESEND_API_KEY=re_your_api_key
-
-# RabbitMQ
-RABBITMQ_URL=amqp://guest:guest@localhost:5672/
 ```
 
 ### Defaults
@@ -762,7 +753,6 @@ func TestPingHandler(t *testing.T) {
 - [x] Redis cache
 - [x] File storage (S3/R2)
 - [x] Server-Sent Events
-- [x] PubSub with RabbitMQ
 - [x] Email & push notifications
 - [x] Rate limiting & CORS
 - [x] Prometheus metrics
