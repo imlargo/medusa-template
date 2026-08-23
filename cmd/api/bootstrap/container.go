@@ -20,13 +20,21 @@ import (
 	"github.com/imlargo/medusa/pkg/medusa/services/cache"
 	"github.com/imlargo/medusa/pkg/medusa/services/health"
 	"github.com/imlargo/medusa/pkg/medusa/services/storage"
+	"github.com/imlargo/sse"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 )
 
-// healthCheckTimeout bounds how long the readiness endpoint waits for all
-// dependency checks combined before reporting the app as unhealthy.
-const healthCheckTimeout = 5 * time.Second
+const (
+	// healthCheckTimeout bounds how long the readiness endpoint waits for all
+	// dependency checks combined before reporting the app as unhealthy.
+	healthCheckTimeout = 5 * time.Second
+
+	// eventRetention is how long a published event stays replayable, which is
+	// the window a reconnecting client can resume from without losing events.
+	eventRetention = 5 * time.Minute
+)
 
 // Container holds every dependency of the application.
 //
@@ -49,10 +57,18 @@ type Container struct {
 	Metrics     metrics.MetricsService  // nil unless metrics are enabled
 	RateLimiter ratelimiter.RateLimiter // nil unless rate limiting is enabled
 
+	// Events publishes server-sent events. Always present: it is in-memory and
+	// costs nothing until something subscribes.
+	Events *sse.Broker
+
 	HealthService *health.Service
 
 	Services *Services
 	Handlers *Handlers
+
+	// MetricsRegistry is what the /metrics endpoint scrapes. nil when metrics
+	// are disabled.
+	MetricsRegistry *prometheus.Registry
 
 	// closers releases resources in reverse order of acquisition.
 	closers []func() error
@@ -70,6 +86,7 @@ type Services struct {
 type Handlers struct {
 	Health *handler.HealthHandler
 	Auth   *handlers.AuthHandler
+	Events *handlers.EventsHandler
 	// Add more as needed:
 	// Product *handlers.ProductHandler
 }
@@ -146,7 +163,14 @@ func (c *Container) initInfrastructure(opts Options) error {
 	})
 
 	c.Store = store.NewStore(repository.NewStore(db, c.Logger))
-	c.JWT = jwt.NewJwt(jwt.Config{Secret: cfg.Auth.JwtSecret})
+
+	jwtAuth, err := jwt.NewJWT(jwt.Config{Secret: cfg.Auth.JwtSecret})
+	if err != nil {
+		return fmt.Errorf("initialize jwt: %w", err)
+	}
+	c.JWT = jwtAuth
+
+	c.Events = sse.NewBroker("events", sse.NewMemoryLog(sse.Retention{For: eventRetention}))
 
 	if opts.WithRedis && cfg.Redis.Enabled() {
 		redisClient, err := database.NewRedisClient(cfg.Redis.URL)
@@ -169,7 +193,16 @@ func (c *Container) initInfrastructure(opts Options) error {
 	}
 
 	if opts.WithMetrics {
-		c.Metrics = metrics.NewPrometheusMetrics()
+		// A dedicated registry rather than the global default: two containers in
+		// one process (which is every test that builds one) would otherwise
+		// panic on duplicate collector registration.
+		registry := prometheus.NewRegistry()
+		metricsService, err := metrics.NewPrometheusMetrics(registry)
+		if err != nil {
+			return fmt.Errorf("initialize metrics: %w", err)
+		}
+		c.Metrics = metricsService
+		c.MetricsRegistry = registry
 	}
 
 	if cfg.RateLimiter.Enabled {
@@ -221,6 +254,7 @@ func (c *Container) buildHandlers() *Handlers {
 	return &Handlers{
 		Health: handler.NewHealthHandler(base, c.HealthService),
 		Auth:   handlers.NewAuthHandler(base, c.Services.Auth),
+		Events: handlers.NewEventsHandler(base, c.Events, c.JWT),
 	}
 }
 
