@@ -20,57 +20,24 @@ func CleanHostURL(rawURL string) string {
 	return rawURL
 }
 
-// IsHttpsURL checks if a URL string starts with "https://".
-// Trims whitespace before checking.
+// ToQueryParams converts a map of parameters into an encoded query string.
+// Empty values are skipped. Keys and values are URL-encoded, and the output is
+// sorted by key so the same map always produces the same string.
 //
 // Example:
 //
-//	isSecure := tools.IsHttpsURL("https://example.com") // Returns: true
-//	isSecure := tools.IsHttpsURL("http://example.com")  // Returns: false
-func IsHttpsURL(rawURL string) bool {
-	rawURL = strings.TrimSpace(rawURL)
-	return strings.HasPrefix(rawURL, "https://")
-}
-
-// IsLocalhostURL checks if a cleaned URL points to localhost.
-// Recognizes "localhost" and "127.0.0.1" as localhost addresses.
-//
-// Example:
-//
-//	isLocal := tools.IsLocalhostURL("http://localhost:8080/api") // Returns: true
-//	isLocal := tools.IsLocalhostURL("https://example.com")       // Returns: false
-func IsLocalhostURL(rawURL string) bool {
-	rawURL = CleanHostURL(rawURL)
-	host := strings.SplitN(rawURL, "/", 2)[0]
-	return host == "localhost" || host == "127.0.0.1"
-}
-
-// ToQueryParams converts a map of parameters to a URL query string.
-// Empty values are skipped. Parameters are not URL-encoded.
-//
-// Example:
-//
-//	params := map[string]string{
-//	    "name":  "John",
-//	    "age":   "30",
-//	    "empty": "",
-//	}
-//	query := tools.ToQueryParams(params) // Returns: "name=John&age=30"
-//
-// Note: For proper URL encoding, consider using url.Values instead.
+//	tools.ToQueryParams(map[string]string{"name": "John Doe", "q": "a&b", "skip": ""})
+//	// Returns: "name=John+Doe&q=a%26b"
 func ToQueryParams(params map[string]string) string {
-	if len(params) == 0 {
-		return ""
-	}
-
-	var queryParams []string
+	values := make(url.Values, len(params))
 	for key, value := range params {
 		if value != "" {
-			queryParams = append(queryParams, key+"="+value)
+			values.Set(key, value)
 		}
 	}
 
-	return strings.Join(queryParams, "&")
+	// url.Values.Encode sorts by key.
+	return values.Encode()
 }
 
 // IsLocalhost checks if a URL or host string points to a localhost address.
