@@ -12,7 +12,7 @@ type WithCrud[T any] interface {
 	Create(ctx context.Context, entity *T) error
 
 	// Get retrieves an entity by its primary key.
-	Get(ctx context.Context, id interface{}) (*T, error)
+	Get(ctx context.Context, id any) (*T, error)
 
 	// FindAll retrieves all entities of type T.
 	FindAll(ctx context.Context) ([]T, error)
@@ -21,7 +21,7 @@ type WithCrud[T any] interface {
 	Update(ctx context.Context, entity *T) error
 
 	// Delete removes an entity by its primary key.
-	Delete(ctx context.Context, id interface{}) error
+	Delete(ctx context.Context, id any) error
 }
 
 // CRUDRepository provides generic CRUD operations for any entity type.
@@ -89,7 +89,7 @@ func (r *CRUDRepository[T]) Create(ctx context.Context, entity *T) error {
 // The id parameter should match the type of the entity's primary key.
 //
 // Returns gorm.ErrRecordNotFound if the entity doesn't exist.
-func (r *CRUDRepository[T]) Get(ctx context.Context, id interface{}) (*T, error) {
+func (r *CRUDRepository[T]) Get(ctx context.Context, id any) (*T, error) {
 	var entity T
 
 	err := r.DB(ctx).First(&entity, id).Error
@@ -122,7 +122,7 @@ func (r *CRUDRepository[T]) FindAll(ctx context.Context) ([]T, error) {
 //
 // If you need to update specific fields only, use the repository's DB() method directly:
 //
-//	r.DB(ctx).Model(&entity).Updates(map[string]interface{}{"name": "new name"})
+//	r.DB(ctx).Model(&entity).Updates(map[string]any{"name": "new name"})
 //
 // Returns an error if the update fails.
 func (r *CRUDRepository[T]) Update(ctx context.Context, entity *T) error {
@@ -140,7 +140,7 @@ func (r *CRUDRepository[T]) Update(ctx context.Context, entity *T) error {
 // marked as deleted but not removed. Use Unscoped().Delete() for permanent deletion.
 //
 // Returns an error if the deletion fails or if the entity doesn't exist.
-func (r *CRUDRepository[T]) Delete(ctx context.Context, id interface{}) error {
+func (r *CRUDRepository[T]) Delete(ctx context.Context, id any) error {
 	var entity T
 
 	result := r.DB(ctx).Delete(&entity, id)
