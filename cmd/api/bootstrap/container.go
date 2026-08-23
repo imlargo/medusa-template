@@ -126,7 +126,9 @@ func MinimalOptions() Options {
 
 // NewContainer wires all dependencies. On failure it closes whatever was already
 // opened, so the caller never has to clean up after an error.
-func NewContainer(cfg *config.Config, opts Options) (*Container, error) {
+//
+// ctx bounds the connectivity checks performed while dialing dependencies.
+func NewContainer(ctx context.Context, cfg *config.Config, opts Options) (*Container, error) {
 	c := &Container{
 		Config: cfg,
 		Logger: logger.NewLogger(),
@@ -139,7 +141,7 @@ func NewContainer(cfg *config.Config, opts Options) (*Container, error) {
 		return nil
 	})
 
-	if err := c.initInfrastructure(opts); err != nil {
+	if err := c.initInfrastructure(ctx, opts); err != nil {
 		// Best effort: the caller only gets the initialization error, so surface
 		// any cleanup failure through the logger instead of swallowing it.
 		if closeErr := c.Close(); closeErr != nil {
@@ -156,11 +158,15 @@ func NewContainer(cfg *config.Config, opts Options) (*Container, error) {
 }
 
 // initInfrastructure opens the external resources the app depends on.
-func (c *Container) initInfrastructure(opts Options) error {
+func (c *Container) initInfrastructure(ctx context.Context, opts Options) error {
 	cfg := c.Config
 	log := c.Logger.Sugar()
 
-	db, err := database.NewPostgresDatabase(cfg.Database.URL)
+	db, err := database.NewPostgresDatabase(cfg.Database.URL,
+		// Statement logging only outside production: it writes user data to a
+		// stream nothing can parse.
+		database.WithQueryLogging(!cfg.Environment.IsProduction()),
+	)
 	if err != nil {
 		return fmt.Errorf("connect to database: %w", err)
 	}
@@ -185,7 +191,7 @@ func (c *Container) initInfrastructure(opts Options) error {
 	c.EventsLifecycle = sse.NewLifecycle()
 
 	if opts.WithRedis && cfg.Redis.Enabled() {
-		redisClient, err := database.NewRedisClient(cfg.Redis.URL)
+		redisClient, err := database.NewRedisClient(ctx, cfg.Redis.URL)
 		if err != nil {
 			return fmt.Errorf("connect to redis: %w", err)
 		}

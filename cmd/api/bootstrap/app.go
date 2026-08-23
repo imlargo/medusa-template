@@ -3,6 +3,7 @@
 package bootstrap
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -24,25 +25,28 @@ type App struct {
 
 // New builds a fully featured application: database, Redis, object storage and
 // metrics, as far as the environment configures them.
-func New(name string) (*App, error) {
-	return NewWithOptions(name, DefaultOptions())
+//
+// ctx bounds the connectivity checks made while dialing dependencies, so a
+// canceled context aborts a slow startup instead of hanging.
+func New(ctx context.Context, name string) (*App, error) {
+	return NewWithOptions(ctx, name, DefaultOptions())
 }
 
 // NewMinimal builds a lightweight application with only the database and JWT.
-func NewMinimal(name string) (*App, error) {
-	return NewWithOptions(name, MinimalOptions())
+func NewMinimal(ctx context.Context, name string) (*App, error) {
+	return NewWithOptions(ctx, name, MinimalOptions())
 }
 
 // NewWithOptions builds an application with an explicit set of optional
 // components. It returns an error if the configuration is invalid or any
 // required dependency is unreachable.
-func NewWithOptions(name string, opts Options) (*App, error) {
+func NewWithOptions(ctx context.Context, name string, opts Options) (*App, error) {
 	cfg, err := config.Load()
 	if err != nil {
 		return nil, err
 	}
 
-	container, err := NewContainer(cfg, opts)
+	container, err := NewContainer(ctx, cfg, opts)
 	if err != nil {
 		return nil, fmt.Errorf("initialize %s: %w", name, err)
 	}

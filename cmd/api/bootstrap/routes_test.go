@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -30,17 +31,18 @@ func newTestContainer(t *testing.T, mutate func(*Container)) *Container {
 		Config: &config.Config{
 			Environment: config.EnvDevelopment,
 		},
-		Logger:        log,
-		JWT:           jwt.MustNewJWT(jwt.Config{Secret: strings.Repeat("s", 32)}),
-		HealthService: health.NewService(time.Second),
-		Events:        sse.NewBroker("events", sse.NewMemoryLog(sse.Retention{For: time.Minute})),
+		Logger:          log,
+		JWT:             jwt.MustNewJWT(jwt.Config{Secret: strings.Repeat("s", 32)}),
+		HealthService:   health.NewService(time.Second),
+		Events:          sse.NewBroker("events", sse.NewMemoryLog(sse.Retention{For: time.Minute})),
+		EventsLifecycle: sse.NewLifecycle(),
 	}
 	c.Config.Server.Host = "localhost"
 	c.Config.Server.Port = 8000
 
 	c.Handlers = &Handlers{
 		Health: handler.NewHealthHandler(handler.NewHandler(log), c.HealthService),
-		Events: handlers.NewEventsHandler(handler.NewHandler(log), c.Events, c.JWT),
+		Events: handlers.NewEventsHandler(handler.NewHandler(log), c.Events, c.EventsLifecycle, c.JWT),
 	}
 
 	if mutate != nil {
@@ -159,5 +161,28 @@ func TestEventStreamRequiresAToken(t *testing.T) {
 
 	if got := get(t, router, "/v1/events").Code; got != http.StatusUnauthorized {
 		t.Errorf("GET /v1/events = %d, want %d", got, http.StatusUnauthorized)
+	}
+}
+
+// Shutdown drains SSE streams before the HTTP server stops. With nothing open it
+// has to return immediately: an unnecessary wait here is added to every deploy.
+func TestDrainEventStreamsIsImmediateWhenIdle(t *testing.T) {
+	c := newTestContainer(t, nil)
+
+	start := time.Now()
+	if err := c.DrainEventStreams(context.Background()); err != nil {
+		t.Fatalf("DrainEventStreams() = %v, want nil", err)
+	}
+
+	if elapsed := time.Since(start); elapsed > 100*time.Millisecond {
+		t.Errorf("drain took %s with no open streams, want it to return immediately", elapsed)
+	}
+}
+
+func TestDrainEventStreamsWithoutALifecycle(t *testing.T) {
+	c := newTestContainer(t, func(c *Container) { c.EventsLifecycle = nil })
+
+	if err := c.DrainEventStreams(context.Background()); err != nil {
+		t.Errorf("DrainEventStreams() = %v, want nil when no lifecycle is configured", err)
 	}
 }
