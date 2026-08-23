@@ -9,6 +9,7 @@ import (
 	"github.com/imlargo/medusa/internal/dto"
 	"github.com/imlargo/medusa/internal/models"
 	"github.com/imlargo/medusa/pkg/medusa/core/jwt"
+	"github.com/imlargo/medusa/pkg/medusa/core/responses"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
@@ -35,8 +36,11 @@ func NewAuthService(container *Service, userSrv UserService, jwtAuth *jwt.JWT) A
 
 func (s *authService) GetUser(ctx context.Context, userID uint) (*models.User, error) {
 	user, err := s.store.Users.Get(ctx, userID)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, responses.NotFound("user")
+	}
 	if err != nil {
-		return nil, err
+		return nil, responses.Internal(err)
 	}
 
 	return user, nil
@@ -45,30 +49,32 @@ func (s *authService) GetUser(ctx context.Context, userID uint) (*models.User, e
 func (s *authService) LoginWithPassword(ctx context.Context, email, password string) (*dto.AuthResponse, error) {
 	user, err := s.store.Users.GetByEmail(ctx, strings.ToLower(email))
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, err
+		return nil, responses.Internal(err)
 	}
 
+	// A missing user and a wrong password return the same error on purpose: a
+	// distinguishable response turns this endpoint into an account enumerator.
 	if user == nil {
-		return nil, errors.New("invalid email or password")
+		return nil, errInvalidCredentials()
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)); err != nil {
-		return nil, errors.New("invalid email or password")
+		return nil, errInvalidCredentials()
 	}
 
 	accessExpiration := time.Now().Add(s.config.Auth.TokenExpiration)
 	refreshExpiration := time.Now().Add(s.config.Auth.RefreshExpiration)
 	accessToken, err := s.jwtAuth.GenerateToken(user.ID, accessExpiration)
 	if err != nil {
-		return nil, err
+		return nil, responses.InternalWithMessage("could not issue the access token", err)
 	}
 
 	refreshToken, err := s.jwtAuth.GenerateToken(user.ID, refreshExpiration)
 	if err != nil {
-		return nil, err
+		return nil, responses.InternalWithMessage("could not issue the refresh token", err)
 	}
 
-	AuthTokens := &dto.AuthResponse{
+	authResponse := &dto.AuthResponse{
 		User: *user,
 		Tokens: dto.AuthTokens{
 			AccessToken:  accessToken,
@@ -76,7 +82,7 @@ func (s *authService) LoginWithPassword(ctx context.Context, email, password str
 		},
 	}
 
-	return AuthTokens, nil
+	return authResponse, nil
 }
 
 func (s *authService) RegisterWithPassword(ctx context.Context, user *dto.RegisterUser) (*dto.AuthResponse, error) {
@@ -90,15 +96,15 @@ func (s *authService) RegisterWithPassword(ctx context.Context, user *dto.Regist
 	refreshExpiration := time.Now().Add(s.config.Auth.RefreshExpiration)
 	accessToken, err := s.jwtAuth.GenerateToken(createdUser.ID, accessExpiration)
 	if err != nil {
-		return nil, err
+		return nil, responses.InternalWithMessage("could not issue the access token", err)
 	}
 
 	refreshToken, err := s.jwtAuth.GenerateToken(createdUser.ID, refreshExpiration)
 	if err != nil {
-		return nil, err
+		return nil, responses.InternalWithMessage("could not issue the refresh token", err)
 	}
 
-	AuthTokens := &dto.AuthResponse{
+	authResponse := &dto.AuthResponse{
 		User: *createdUser,
 		Tokens: dto.AuthTokens{
 			AccessToken:  accessToken,
@@ -106,5 +112,11 @@ func (s *authService) RegisterWithPassword(ctx context.Context, user *dto.Regist
 		},
 	}
 
-	return AuthTokens, nil
+	return authResponse, nil
+}
+
+// errInvalidCredentials is the single response for any failed password login,
+// so callers cannot tell a wrong password from an unknown account.
+func errInvalidCredentials() error {
+	return responses.Unauthorized("invalid email or password")
 }
