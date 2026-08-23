@@ -2,6 +2,7 @@ package health
 
 import (
 	"context"
+	"sync"
 	"time"
 )
 
@@ -28,36 +29,45 @@ func (s *Service) RegisterChecker(checker Checker) {
 	s.checkers = append(s.checkers, checker)
 }
 
-// Check performs all health checks and returns the overall status.
+// Check runs every registered check and reports the combined status.
+//
+// Checks run concurrently: a readiness probe over N dependencies should cost the
+// slowest one, not the sum of all of them. The configured timeout bounds the
+// whole set, and results keep registration order regardless of completion order
+// so the response is stable across calls.
 func (s *Service) Check(ctx context.Context) HealthStatus {
 	checkers := s.checkers
 
-	// Create context with timeout
 	checkCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
-	results := make([]CheckResult, 0, len(checkers))
-	allHealthy := true
+	results := make([]CheckResult, len(checkers))
 
-	// Execute checks synchronously for easier debugging
-	for _, checker := range checkers {
-		result := CheckResult{
-			Name:   checker.Name(),
-			Status: "healthy",
-		}
+	var wg sync.WaitGroup
+	for i, checker := range checkers {
+		wg.Go(func() {
+			result := CheckResult{
+				Name:   checker.Name(),
+				Status: StatusHealthy,
+			}
 
-		if err := checker.Check(checkCtx); err != nil {
-			result.Status = "unhealthy"
-			result.Message = err.Error()
-			allHealthy = false
-		}
+			if err := checker.Check(checkCtx); err != nil {
+				result.Status = StatusUnhealthy
+				result.Message = err.Error()
+			}
 
-		results = append(results, result)
+			// Each goroutine owns exactly one slot, so no lock is needed.
+			results[i] = result
+		})
 	}
+	wg.Wait()
 
-	status := "healthy"
-	if !allHealthy {
-		status = "unhealthy"
+	status := StatusHealthy
+	for _, result := range results {
+		if result.Status != StatusHealthy {
+			status = StatusUnhealthy
+			break
+		}
 	}
 
 	return HealthStatus{
@@ -66,8 +76,7 @@ func (s *Service) Check(ctx context.Context) HealthStatus {
 	}
 }
 
-// CheckSimple performs a simple health check without detailed results.
+// CheckSimple reports whether every dependency is healthy, without the detail.
 func (s *Service) CheckSimple(ctx context.Context) bool {
-	status := s.Check(ctx)
-	return status.Status == "healthy"
+	return s.Check(ctx).Status == StatusHealthy
 }
