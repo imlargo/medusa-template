@@ -4,12 +4,18 @@ import (
 	stdcontext "context"
 
 	"github.com/gin-gonic/gin"
+	"github.com/imlargo/medusa/pkg/medusa/core/responses"
 )
 
-// Context keys
+// Context keys.
 const (
-	UserIDContextKey    = "medusa_user_id"
-	RequestIDContextKey = "medusa_request_id"
+	// UserIDContextKey holds the authenticated user's ID, set by the auth middleware.
+	UserIDContextKey = "medusa_user_id"
+
+	// RequestIDContextKey holds the current request ID. It aliases
+	// responses.RequestIDKey, which is the single definition, so the key used by
+	// the middleware, the responses and this Context can never drift apart.
+	RequestIDContextKey = responses.RequestIDKey
 )
 
 // Context wraps gin.Context with additional helpers for common operations.
