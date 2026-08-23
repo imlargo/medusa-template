@@ -134,7 +134,7 @@ func main() {
 // log.Fatal — would skip every deferred call.
 func run(ctx context.Context) (err error) {
     // Bootstrap loads the config and wires every dependency.
-    app, appErr := bootstrap.New("medusa-api")
+    app, appErr := bootstrap.New(ctx, "medusa-api")
     if appErr != nil {
         return appErr
     }
@@ -308,8 +308,28 @@ broker.Publish(ctx, sse.MustTopic("user.123.notifications"),
     gin.H{"title": "New message"}, sse.Name("notification"))
 ```
 
-See `internal/handlers/events.go` for the wired-up version, and the library's
-README for backpressure policies, topic routing and running across many nodes.
+An SSE response never completes on its own, and `http.Server.Shutdown` waits for
+in-flight requests — so a stream has to be drained explicitly or every deploy
+stalls for the full shutdown timeout and severs the connections anyway. A
+`Lifecycle` is what makes that possible, and the app drains it before stopping
+the server:
+
+```go
+lifecycle := sse.NewLifecycle()
+router.GET("/v1/events", gin.WrapH(broker.Handler(
+    sse.WithAuthorizer(authorize),
+    sse.WithLifecycle(lifecycle),
+)))
+
+// Registered as an onStop hook, which the app runs before any server stops.
+app.WithOnStop(func(ctx context.Context) error {
+    return lifecycle.Shutdown(ctx)
+})
+```
+
+See `internal/handlers/events.go` and `Container.DrainEventStreams` for the
+wired-up version, and the library's README for backpressure policies, topic
+routing and running across many nodes.
 
 #### Handlers return their result
 
