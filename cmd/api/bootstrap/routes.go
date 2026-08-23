@@ -2,6 +2,8 @@ package bootstrap
 
 import (
 	"github.com/gin-gonic/gin"
+	apidocs "github.com/imlargo/medusa/api/docs"
+	"github.com/imlargo/medusa/pkg/medusa"
 	medusadocs "github.com/imlargo/medusa/pkg/medusa/core/docs"
 	"github.com/imlargo/medusa/pkg/medusa/middleware"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -52,12 +54,19 @@ func registerRoutes(router *gin.Engine, c *Container) {
 	if c.Metrics != nil {
 		router.Use(middleware.NewMetricsMiddleware(c.Metrics))
 
-		// Prometheus scrape endpoint. It exposes internal request paths and
-		// latencies, so restrict it at the ingress or network layer.
-		router.GET("/metrics", gin.WrapH(promhttp.Handler()))
+		// Scraped from this container's own registry, not the global default.
+		// It exposes internal request paths and latencies, so restrict it at the
+		// ingress or network layer.
+		router.GET("/metrics", gin.WrapH(promhttp.HandlerFor(c.MetricsRegistry, promhttp.HandlerOpts{})))
 	}
 
-	medusadocs.RegisterDocs(router, c.Config.Server.Host, c.Config.Server.Port)
+	// The spec is injected rather than imported by the docs package, which is
+	// what keeps pkg/medusa independent of this application.
+	medusadocs.RegisterDocs(router, medusadocs.Config{
+		Spec: apidocs.SwaggerInfo,
+		Host: c.Config.Server.Host,
+		Port: c.Config.Server.Port,
+	})
 
 	// Probes sit outside the API group on purpose: no auth and no rate limit, so
 	// orchestrators keep getting an answer even while the app sheds load.
@@ -78,27 +87,34 @@ func registerRoutes(router *gin.Engine, c *Container) {
 	}
 
 	registerAuthRoutes(groups, c)
-
-	// Add more feature route groups here:
-	// registerProductRoutes(groups, c)
+	registerEventRoutes(groups, c)
 }
 
 func registerAuthRoutes(g apiGroups, c *Container) {
 	public := g.public.Group("/auth")
-	public.POST("/login", c.Handlers.Auth.LoginWithPassword)
-	public.POST("/register", c.Handlers.Auth.Register)
+	public.POST("/login", medusa.Handle(c.Handlers.Auth.LoginWithPassword))
+	public.POST("/register", medusa.HandleCreate(c.Handlers.Auth.Register))
 
 	protected := g.protected.Group("/auth")
-	protected.GET("/user", c.Handlers.Auth.GetUser)
+	protected.GET("/user", medusa.HandleGet(c.Handlers.Auth.GetUser))
+}
+
+func registerEventRoutes(g apiGroups, c *Container) {
+	// The stream authenticates itself: the sse Authorizer reads the token off
+	// the raw request so it can both identify the caller and scope their topics,
+	// which the gin middleware cannot do. Hence public here, not unauthenticated.
+	g.public.GET("/events", c.Handlers.Events.Stream())
+
+	g.protected.POST("/events/publish", medusa.HandleCreate(c.Handlers.Events.Publish))
 }
 
 // Template for adding a new feature:
 //
 //	func registerProductRoutes(g apiGroups, c *Container) {
 //	    products := g.protected.Group("/products")
-//	    products.GET("", c.Handlers.Product.List)
-//	    products.GET("/:id", c.Handlers.Product.Get)
-//	    products.POST("", c.Handlers.Product.Create)
-//	    products.PUT("/:id", c.Handlers.Product.Update)
-//	    products.DELETE("/:id", c.Handlers.Product.Delete)
+//	    products.GET("", medusa.HandleGet(c.Handlers.Product.List))
+//	    products.GET("/:id", medusa.HandleGet(c.Handlers.Product.Get))
+//	    products.POST("", medusa.HandleCreate(c.Handlers.Product.Create))
+//	    products.PUT("/:id", medusa.HandleUpdate(c.Handlers.Product.Update))
+//	    products.DELETE("/:id", medusa.HandleDelete(c.Handlers.Product.Delete))
 //	}

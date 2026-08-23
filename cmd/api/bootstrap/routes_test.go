@@ -9,12 +9,15 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/imlargo/medusa/internal/config"
+	"github.com/imlargo/medusa/internal/handlers"
 	"github.com/imlargo/medusa/pkg/medusa/core/handler"
 	"github.com/imlargo/medusa/pkg/medusa/core/jwt"
 	"github.com/imlargo/medusa/pkg/medusa/core/logger"
 	"github.com/imlargo/medusa/pkg/medusa/core/metrics"
 	"github.com/imlargo/medusa/pkg/medusa/core/ratelimiter"
 	"github.com/imlargo/medusa/pkg/medusa/services/health"
+	"github.com/imlargo/sse"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 // newTestContainer builds a container with only the pieces the router touches,
@@ -28,14 +31,16 @@ func newTestContainer(t *testing.T, mutate func(*Container)) *Container {
 			Environment: config.EnvDevelopment,
 		},
 		Logger:        log,
-		JWT:           jwt.NewJwt(jwt.Config{Secret: strings.Repeat("s", 32)}),
+		JWT:           jwt.MustNewJWT(jwt.Config{Secret: strings.Repeat("s", 32)}),
 		HealthService: health.NewService(time.Second),
+		Events:        sse.NewBroker("events", sse.NewMemoryLog(sse.Retention{For: time.Minute})),
 	}
 	c.Config.Server.Host = "localhost"
 	c.Config.Server.Port = 8000
 
 	c.Handlers = &Handlers{
 		Health: handler.NewHealthHandler(handler.NewHandler(log), c.HealthService),
+		Events: handlers.NewEventsHandler(handler.NewHandler(log), c.Events, c.JWT),
 	}
 
 	if mutate != nil {
@@ -74,7 +79,13 @@ func TestRequestIDHeaderIsAlwaysSet(t *testing.T) {
 func TestMetricsEndpointFollowsTheMetricsService(t *testing.T) {
 	t.Run("exposed when enabled", func(t *testing.T) {
 		router := newRouter(newTestContainer(t, func(c *Container) {
-			c.Metrics = metrics.NewPrometheusMetrics()
+			registry := prometheus.NewRegistry()
+			metricsService, err := metrics.NewPrometheusMetrics(registry)
+			if err != nil {
+				t.Fatalf("NewPrometheusMetrics() = %v, want nil error", err)
+			}
+			c.Metrics = metricsService
+			c.MetricsRegistry = registry
 		}))
 
 		if got := get(t, router, "/metrics").Code; got != http.StatusOK {
@@ -130,5 +141,23 @@ func TestGinModeFollowsEnvironment(t *testing.T) {
 		if got := ginMode(c); got != want {
 			t.Errorf("ginMode(%q) = %q, want %q", environment, got, want)
 		}
+	}
+}
+
+// A metrics service can be built more than once in a process now that the
+// registry is injected. With the global default registry this panicked.
+func TestMetricsCanBeBuiltTwice(t *testing.T) {
+	for i := range 2 {
+		if _, err := metrics.NewPrometheusMetrics(prometheus.NewRegistry()); err != nil {
+			t.Fatalf("build %d = %v, want nil error", i, err)
+		}
+	}
+}
+
+func TestEventStreamRequiresAToken(t *testing.T) {
+	router := newRouter(newTestContainer(t, nil))
+
+	if got := get(t, router, "/v1/events").Code; got != http.StatusUnauthorized {
+		t.Errorf("GET /v1/events = %d, want %d", got, http.StatusUnauthorized)
 	}
 }
