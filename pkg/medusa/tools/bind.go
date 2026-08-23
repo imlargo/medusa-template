@@ -31,7 +31,7 @@ import (
 //	    Email string `json:"email"`
 //	}
 //
-//	data := map[string]interface{}{
+//	data := map[string]any{
 //	    "name":    "John",
 //	    "email":   "john@example.com",
 //	    "invalid": "field", // This will cause an error
@@ -50,7 +50,7 @@ import (
 //   - result is not a pointer to a struct
 //   - the map contains unknown fields
 //   - JSON marshaling/unmarshaling fails
-func MapToStructStrict(data map[string]interface{}, result interface{}) error {
+func MapToStructStrict(data map[string]any, result any) error {
 	// Initial checks
 	if reflect.TypeOf(result).Kind() != reflect.Ptr {
 		return fmt.Errorf("result must be a pointer to struct")
@@ -94,7 +94,7 @@ func MapToStructStrict(data map[string]interface{}, result interface{}) error {
 //	    Email string `json:"email"`
 //	}
 //
-//	data := map[string]interface{}{
+//	data := map[string]any{
 //	    "name":     "John",
 //	    "email":    "john@example.com",
 //	    "extra":    "data",    // This will be ignored
@@ -114,7 +114,7 @@ func MapToStructStrict(data map[string]interface{}, result interface{}) error {
 // Returns an error if:
 //   - result is not a pointer to a struct
 //   - JSON marshaling/unmarshaling fails
-func MapToStruct(data map[string]interface{}, result interface{}) error {
+func MapToStruct(data map[string]any, result any) error {
 	// Initial checks
 	if reflect.TypeOf(result).Kind() != reflect.Ptr {
 		return fmt.Errorf("result must be a pointer to struct")
