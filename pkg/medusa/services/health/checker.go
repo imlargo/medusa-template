@@ -11,6 +11,14 @@ type Checker interface {
 	Name() string
 }
 
+// Status values reported for a dependency and for the app as a whole. They are
+// part of the /ready response contract, so they live here as constants rather
+// than as literals repeated at each use.
+const (
+	StatusHealthy   = "healthy"
+	StatusUnhealthy = "unhealthy"
+)
+
 // CheckResult represents the result of a health check.
 type CheckResult struct {
 	Name    string `json:"name"`
