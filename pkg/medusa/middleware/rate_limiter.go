@@ -1,7 +1,8 @@
 package middleware
 
 import (
-	"fmt"
+	"math"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/imlargo/medusa/pkg/medusa/core/ratelimiter"
@@ -14,12 +15,13 @@ import (
 // with information about when to retry.
 func NewRateLimiterMiddleware(rl ratelimiter.RateLimiter) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
-		ip := ctx.ClientIP()
-		allow, retryAfter := rl.Allow(ip)
+		allow, retryAfter := rl.Allow(ctx.ClientIP())
 		if !allow {
-			message := "Rate limit exceeded. Try again in " + fmt.Sprintf("%.2f", retryAfter)
-			responses.ErrorTooManyRequests(ctx, message)
-			ctx.Abort()
+			// Round up: telling a client to retry in 0 seconds invites an
+			// immediate retry that is guaranteed to be rejected again.
+			seconds := int(math.Ceil(retryAfter))
+			ctx.Header("Retry-After", strconv.Itoa(seconds))
+			responses.AbortWithError(ctx, responses.TooManyRequests(seconds))
 			return
 		}
 
