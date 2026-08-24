@@ -23,9 +23,11 @@ const (
 	envMaxRequestBody  = "MAX_REQUEST_BODY_BYTES"
 	envDocsEnabled     = "DOCS_ENABLED"
 
-	envRateLimiterEnabled   = "RATE_LIMITER_ENABLED"
-	envRateLimiterRequests  = "RATE_LIMITER_REQUESTS_PER_TIME_FRAME"
-	envRateLimiterTimeFrame = "RATE_LIMITER_TIME_FRAME"
+	envRateLimiterEnabled        = "RATE_LIMITER_ENABLED"
+	envRateLimiterRequests       = "RATE_LIMITER_REQUESTS_PER_TIME_FRAME"
+	envRateLimiterTimeFrame      = "RATE_LIMITER_TIME_FRAME"
+	envRateLimiterTrustedProxies = "RATE_LIMITER_TRUSTED_PROXIES"
+	envRateLimiterAuthRequests   = "RATE_LIMITER_AUTH_REQUESTS_PER_MINUTE"
 
 	envStorageProvider        = "STORAGE_PROVIDER"
 	envStorageBucketName      = "STORAGE_BUCKET_NAME"
@@ -57,6 +59,12 @@ const (
 	defaultRateLimiterEnabled   = true
 	defaultRateLimiterRequests  = 100
 	defaultRateLimiterTimeFrame = time.Minute
+
+	// defaultRateLimiterAuthRequests is deliberately far below the general
+	// limit. Credential endpoints are the one place where the attacker's goal is
+	// volume, and the general limit is sized for a browser loading a page, not
+	// for someone guessing passwords.
+	defaultRateLimiterAuthRequests = 10
 )
 
 // minJWTSecretLength is the shortest secret accepted in production. HS256 keys

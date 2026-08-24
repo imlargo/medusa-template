@@ -10,6 +10,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/netip"
 	"os"
 	"slices"
 	"strconv"
@@ -93,11 +94,37 @@ func (c RuntimeConfig) ServerShutdownTimeout() time.Duration {
 	return c.ShutdownTimeout - c.DrainTimeout()
 }
 
-// RateLimiterConfig caps how many requests a single client IP may issue.
+// RateLimiterConfig caps how many requests a single caller may issue.
 type RateLimiterConfig struct {
 	Enabled              bool
 	RequestsPerTimeFrame int
 	TimeFrame            time.Duration
+
+	// AuthRequestsPerMinute is the separate, much tighter limit on credential
+	// endpoints. Brute force is a volume attack, and the general limit is sized
+	// for a browser loading a page rather than for someone guessing passwords.
+	AuthRequestsPerMinute int
+
+	// TrustedProxies are the CIDR blocks of the reverse proxies, load balancers
+	// or ingress controllers that sit directly in front of this server. Empty
+	// means nothing does.
+	//
+	// This is a security setting, not a convenience. A caller can put anything
+	// in X-Forwarded-For, so the only way to derive an address worth rate
+	// limiting is to know which hops added to that header and can be believed.
+	// Leave it empty and every forwarding header is ignored: the counter is
+	// keyed by the address that actually opened the connection, which cannot be
+	// forged.
+	//
+	// Get it wrong in the trusting direction and the rate limiter stops working
+	// without saying so: a caller sets a fresh header on every request, gets a
+	// fresh counter every time, and has no limit at all. Get it wrong in the
+	// other direction, by leaving it empty behind a proxy, and every caller
+	// shares one counter, which is loud and obvious.
+	//
+	// So the empty default is the safe one. Fill it in only for the proxies you
+	// actually operate.
+	TrustedProxies []string
 }
 
 // RedisConfig points at the Redis instance backing the cache. Redis is optional:
@@ -156,9 +183,11 @@ func Load() (*Config, error) {
 			AllowedOrigins: l.list(envCORSAllowedOrigins),
 		},
 		RateLimiter: RateLimiterConfig{
-			Enabled:              l.boolean(envRateLimiterEnabled, defaultRateLimiterEnabled),
-			RequestsPerTimeFrame: l.integer(envRateLimiterRequests, defaultRateLimiterRequests),
-			TimeFrame:            l.duration(envRateLimiterTimeFrame, defaultRateLimiterTimeFrame),
+			Enabled:               l.boolean(envRateLimiterEnabled, defaultRateLimiterEnabled),
+			RequestsPerTimeFrame:  l.integer(envRateLimiterRequests, defaultRateLimiterRequests),
+			TimeFrame:             l.duration(envRateLimiterTimeFrame, defaultRateLimiterTimeFrame),
+			AuthRequestsPerMinute: l.integer(envRateLimiterAuthRequests, defaultRateLimiterAuthRequests),
+			TrustedProxies:        l.list(envRateLimiterTrustedProxies),
 		},
 		Redis: RedisConfig{
 			URL: l.text(envRedisURL, ""),
@@ -195,6 +224,30 @@ func (c *Config) Validate() error {
 
 	if c.Server.Port < 1 || c.Server.Port > 65535 {
 		errs = append(errs, fmt.Errorf("%s: %d is out of the valid port range 1-65535", envPort, c.Server.Port))
+	}
+
+	if c.RateLimiter.Enabled {
+		if c.RateLimiter.RequestsPerTimeFrame < 1 {
+			errs = append(errs, fmt.Errorf("%s: %d, want at least 1",
+				envRateLimiterRequests, c.RateLimiter.RequestsPerTimeFrame))
+		}
+		if c.RateLimiter.TimeFrame <= 0 {
+			errs = append(errs, fmt.Errorf("%s: %v, want a positive duration",
+				envRateLimiterTimeFrame, c.RateLimiter.TimeFrame))
+		}
+		if c.RateLimiter.AuthRequestsPerMinute < 1 {
+			errs = append(errs, fmt.Errorf("%s: %d, want at least 1",
+				envRateLimiterAuthRequests, c.RateLimiter.AuthRequestsPerMinute))
+		}
+		// A malformed CIDR here would be dropped silently and the proxy it was
+		// meant to describe would stop being trusted, which changes who gets
+		// counted. Fail at startup instead.
+		for _, cidr := range c.RateLimiter.TrustedProxies {
+			if _, err := netip.ParsePrefix(cidr); err != nil {
+				errs = append(errs, fmt.Errorf("%s: %q is not a CIDR block: %w",
+					envRateLimiterTrustedProxies, cidr, err))
+			}
+		}
 	}
 
 	if c.Auth.TokenExpiration <= 0 {

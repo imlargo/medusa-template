@@ -8,18 +8,21 @@ import (
 	"github.com/imlargo/ratelimit"
 )
 
-// NewRateLimiterMiddleware creates a middleware that enforces rate limiting per
-// client IP, using the provided limiter. If the rate limit is exceeded, it
-// returns a 429 Too Many Requests response with information about when to
-// retry.
+// NewRateLimiterMiddleware enforces the limiter's rules on every request that
+// reaches it. Requests over the limit get a 429 carrying the standard rate limit
+// headers, so a client can back off instead of retrying blind.
+//
+// The request is handed to the limiter whole, rather than picking an address out
+// of it here. That is deliberate: deriving a client address from a forwarding
+// header is the step that decides whether the limiter can be bypassed at all,
+// and it belongs in one audited place rather than at every call site. In
+// particular, gin's ClientIP returns the *leftmost* X-Forwarded-For entry and
+// trusts every proxy unless SetTrustedProxies says otherwise, so using it as the
+// rate limit key lets any caller pick its own identity by setting a header and
+// have no limit whatsoever.
 func NewRateLimiterMiddleware(rl *ratelimit.Limiter) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
-		d := rl.Check(ctx.Request.Context(), ratelimit.Subject{
-			Identity: ctx.ClientIP(),
-			Path:     ctx.Request.URL.Path,
-			Method:   ctx.Request.Method,
-			Host:     ctx.Request.Host,
-		})
+		d := rl.CheckRequest(ctx.Request)
 		d.WriteHeaders(ctx.Writer.Header())
 
 		if !d.Allowed {

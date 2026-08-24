@@ -21,6 +21,7 @@ import (
 	"github.com/imlargo/medusa/pkg/medusa/services/health"
 	"github.com/imlargo/medusa/pkg/medusa/services/storage"
 	"github.com/imlargo/ratelimit"
+	ratelimitprom "github.com/imlargo/ratelimit/metrics/prometheus"
 	"github.com/imlargo/sse"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/redis/go-redis/v9"
@@ -52,11 +53,11 @@ type Container struct {
 	JWT   *jwt.JWT
 
 	// Infrastructure, optional.
-	RedisClient *redis.Client           // nil unless Redis is configured
-	Cache       cache.Cache             // nil unless Redis is configured
-	Storage     storage.FileStorage     // nil unless object storage is configured
-	Metrics     metrics.MetricsService  // nil unless metrics are enabled
-	RateLimiter *ratelimit.Limiter // nil unless rate limiting is enabled
+	RedisClient *redis.Client          // nil unless Redis is configured
+	Cache       cache.Cache            // nil unless Redis is configured
+	Storage     storage.FileStorage    // nil unless object storage is configured
+	Metrics     metrics.MetricsService // nil unless metrics are enabled
+	RateLimiter *ratelimit.Limiter     // nil unless rate limiting is enabled
 
 	// Events publishes server-sent events. Always present: it is in-memory and
 	// costs nothing until something subscribes.
@@ -219,17 +220,7 @@ func (c *Container) initInfrastructure(ctx context.Context, opts Options) error 
 	}
 
 	if cfg.RateLimiter.Enabled {
-		rateLimiter, err := ratelimit.NewWith(ratelimit.Config{
-			// The middleware fills Subject.Identity itself, from gin's resolved
-			// client IP, rather than letting the library parse the request.
-			Identity: ratelimit.FromSubject(),
-			Rules: []ratelimit.Rule{
-				{
-					Quota: ratelimit.Per(cfg.RateLimiter.RequestsPerTimeFrame, cfg.RateLimiter.TimeFrame),
-					Key:   ratelimit.ByIdentity(),
-				},
-			},
-		})
+		rateLimiter, err := buildRateLimiter(cfg.RateLimiter, c.MetricsRegistry)
 		if err != nil {
 			return fmt.Errorf("initialize rate limiter: %w", err)
 		}
@@ -238,10 +229,76 @@ func (c *Container) initInfrastructure(ctx context.Context, opts Options) error 
 		log.Infow("rate limiter enabled",
 			"requests", cfg.RateLimiter.RequestsPerTimeFrame,
 			"per", cfg.RateLimiter.TimeFrame,
+			"auth_requests_per_minute", cfg.RateLimiter.AuthRequestsPerMinute,
+			"keyed_by", rateLimiterKeyDescription(cfg.RateLimiter),
+			"rules", rateLimiter.Rules(),
 		)
 	}
 
 	return nil
+}
+
+// buildRateLimiter assembles the rule table.
+//
+// Two rules, because they answer different questions. The general one caps how
+// much of the API any one caller may use. The auth one caps guesses at
+// credentials, which is a volume attack and needs a much tighter bound than a
+// browser loading a page does. Both apply to a request that matches both, and
+// the tighter one governs.
+//
+// Everything the limiter needs to reject a request is decided here, at startup:
+// a bad selector, an incoherent quota or a malformed proxy range fails now,
+// with an error naming the problem, rather than on the first request.
+func buildRateLimiter(cfg config.RateLimiterConfig, registry *prometheus.Registry) (*ratelimit.Limiter, error) {
+	key := ratelimit.ByPeer()
+	if len(cfg.TrustedProxies) > 0 {
+		key = ratelimit.ByIP(cfg.TrustedProxies...)
+	}
+
+	rlCfg := ratelimit.Config{
+		Rules: []ratelimit.Rule{
+			{
+				// Credential endpoints, by address. Not by account: an attacker
+				// guessing passwords supplies a different account every time,
+				// and would get a fresh counter for each.
+				Name:     "auth",
+				Selector: "POST /v1/auth/",
+				Quota:    ratelimit.PerMinute(cfg.AuthRequestsPerMinute),
+				Key:      key,
+			},
+			{
+				Name:  "general",
+				Quota: ratelimit.Per(cfg.RequestsPerTimeFrame, cfg.TimeFrame),
+				Key:   key,
+			},
+		},
+	}
+
+	// Metrics matter more here than anywhere else in the application: this is
+	// the one component whose job is to refuse requests, so "is it refusing the
+	// wrong ones" has to be answerable. Compare denied against shadow_denied
+	// before tightening a limit, and watch store_saturated, which is the only
+	// way this component can refuse a caller for a reason unrelated to its
+	// quota.
+	if registry != nil {
+		exporter, err := ratelimitprom.New(registry, ratelimitprom.Options{Namespace: "medusa"})
+		if err != nil {
+			return nil, fmt.Errorf("rate limiter metrics: %w", err)
+		}
+		rlCfg.Metrics = exporter.Metrics()
+	}
+
+	return ratelimit.NewWith(rlCfg)
+}
+
+// rateLimiterKeyDescription is for the startup log. Which address a limiter
+// counts by is the thing most worth seeing in a log line, because getting it
+// wrong is silent in one direction and obvious in the other.
+func rateLimiterKeyDescription(cfg config.RateLimiterConfig) string {
+	if len(cfg.TrustedProxies) == 0 {
+		return "connection address (no trusted proxies declared, forwarding headers ignored)"
+	}
+	return fmt.Sprintf("client address behind trusted proxies %v", cfg.TrustedProxies)
 }
 
 // buildHealthService registers a readiness check per external dependency.

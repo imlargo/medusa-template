@@ -23,6 +23,25 @@ func newRouter(c *Container) *gin.Engine {
 	gin.SetMode(ginMode(c))
 
 	router := gin.New()
+
+	// Gin trusts every proxy by default, which makes gin.ClientIP return the
+	// leftmost X-Forwarded-For entry: a value the caller chose. Anything keyed
+	// on it - access logs, metrics labels, an audit trail - is then attacker
+	// controlled. Declaring the proxies fixes that; declaring none makes
+	// ClientIP report the address that actually opened the connection, which is
+	// the right answer when nothing sits in front of this server.
+	//
+	// The rate limiter does not rely on this: it derives its own address from
+	// the same configuration and refuses to start if asked to read a forwarding
+	// header without being told which hops to believe. This is for everything
+	// else.
+	if err := router.SetTrustedProxies(c.Config.RateLimiter.TrustedProxies); err != nil {
+		// Unreachable: the CIDR blocks are validated when the configuration is
+		// loaded. Log rather than ignore, so a future change cannot make this
+		// silent.
+		c.Logger.Sugar().Errorw("invalid trusted proxy configuration", "error", err)
+	}
+
 	router.Use(gin.Recovery(), accessLogMiddleware(c.Logger))
 
 	registerRoutes(router, c)

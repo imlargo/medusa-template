@@ -1,6 +1,7 @@
 package config
 
 import (
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
@@ -327,6 +328,81 @@ func TestRuntimeValidation(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), tt.wantErr) {
 				t.Errorf("Load() error = %q, want it to contain %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestRateLimiterTrustedProxiesAreValidated. A malformed CIDR would be dropped
+// silently and the proxy it described would stop being trusted, which changes
+// which address gets counted. That has to fail at startup.
+func TestRateLimiterTrustedProxiesAreValidated(t *testing.T) {
+	cases := []struct {
+		value   string
+		wantErr bool
+	}{
+		{"", false},
+		{"10.0.0.0/8", false},
+		{"10.0.0.0/8,172.16.0.0/12, 192.168.0.0/16", false},
+		{"::1/128", false},
+		{"10.0.0.1", true},    // an address, not a block
+		{"10.0.0.0/33", true}, // out of range
+		{"not-a-cidr", true},  // nonsense
+		{"10.0.0.0/8,garbage", true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.value, func(t *testing.T) {
+			validEnv(t)
+			t.Setenv(envRateLimiterEnabled, "true")
+			t.Setenv(envRateLimiterTrustedProxies, tc.value)
+
+			cfg, err := Load()
+			switch {
+			case tc.wantErr && err == nil:
+				t.Fatalf("%q was accepted as a trusted proxy list", tc.value)
+			case !tc.wantErr && err != nil:
+				t.Fatalf("%q was rejected: %v", tc.value, err)
+			case err != nil:
+				if !strings.Contains(err.Error(), "RATE_LIMITER_TRUSTED_PROXIES") {
+					t.Errorf("the error does not name the offending variable: %v", err)
+				}
+				return
+			}
+			for _, cidr := range cfg.RateLimiter.TrustedProxies {
+				if _, perr := netip.ParsePrefix(cidr); perr != nil {
+					t.Errorf("Load returned an unparseable prefix %q", cidr)
+				}
+			}
+		})
+	}
+}
+
+// TestRateLimiterQuotasAreValidated for the same reason: a quota of zero is a
+// limiter that refuses everything, and finding that out from production traffic
+// is the expensive way.
+func TestRateLimiterQuotasAreValidated(t *testing.T) {
+	cases := []struct {
+		name    string
+		env     map[string]string
+		wantErr bool
+	}{
+		{"defaults", map[string]string{envRateLimiterEnabled: "true"}, false},
+		{"zero requests", map[string]string{envRateLimiterEnabled: "true", envRateLimiterRequests: "0"}, true},
+		{"negative requests", map[string]string{envRateLimiterEnabled: "true", envRateLimiterRequests: "-5"}, true},
+		{"zero auth requests", map[string]string{envRateLimiterEnabled: "true", envRateLimiterAuthRequests: "0"}, true},
+		{"disabled, nothing checked", map[string]string{envRateLimiterEnabled: "false", envRateLimiterRequests: "0"}, false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			validEnv(t)
+			for k, v := range tc.env {
+				t.Setenv(k, v)
+			}
+			_, err := Load()
+			if tc.wantErr != (err != nil) {
+				t.Fatalf("wantErr=%v, got %v", tc.wantErr, err)
 			}
 		})
 	}
