@@ -13,6 +13,7 @@ require (
 	github.com/go-playground/validator/v10 v10.27.0
 	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/google/uuid v1.6.0
+	github.com/imlargo/ratelimit v0.1.1
 	github.com/imlargo/sse v0.1.0
 	github.com/joho/godotenv v1.5.1
 	github.com/prometheus/client_golang v1.19.1
@@ -23,7 +24,6 @@ require (
 	go.uber.org/zap v1.28.0
 	golang.org/x/crypto v0.40.0
 	golang.org/x/oauth2 v0.16.0
-	golang.org/x/time v0.14.0
 	gorm.io/driver/postgres v1.6.0
 	gorm.io/gorm v1.31.1
 )

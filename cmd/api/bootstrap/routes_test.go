@@ -15,8 +15,8 @@ import (
 	"github.com/imlargo/medusa/pkg/medusa/core/jwt"
 	"github.com/imlargo/medusa/pkg/medusa/core/logger"
 	"github.com/imlargo/medusa/pkg/medusa/core/metrics"
-	"github.com/imlargo/medusa/pkg/medusa/core/ratelimiter"
 	"github.com/imlargo/medusa/pkg/medusa/services/health"
+	"github.com/imlargo/ratelimit"
 	"github.com/imlargo/sse"
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -117,10 +117,16 @@ func TestProtectedRoutesRequireAToken(t *testing.T) {
 // of throttling.
 func TestRateLimiterRunsBeforeAuthentication(t *testing.T) {
 	router := newRouter(newTestContainer(t, func(c *Container) {
-		c.RateLimiter = ratelimiter.NewTokenBucketLimiter(ratelimiter.Config{
-			RequestsPerTimeFrame: 1,
-			TimeFrame:            time.Minute,
+		rl, err := ratelimit.NewWith(ratelimit.Config{
+			Identity: ratelimit.FromSubject(),
+			Rules: []ratelimit.Rule{
+				{Quota: ratelimit.PerMinute(1), Key: ratelimit.ByIdentity()},
+			},
 		})
+		if err != nil {
+			t.Fatalf("build rate limiter: %v", err)
+		}
+		c.RateLimiter = rl
 	}))
 
 	if got := get(t, router, "/v1/auth/user").Code; got != http.StatusUnauthorized {

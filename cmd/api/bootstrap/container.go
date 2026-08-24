@@ -15,12 +15,12 @@ import (
 	"github.com/imlargo/medusa/pkg/medusa/core/jwt"
 	"github.com/imlargo/medusa/pkg/medusa/core/logger"
 	"github.com/imlargo/medusa/pkg/medusa/core/metrics"
-	"github.com/imlargo/medusa/pkg/medusa/core/ratelimiter"
 	"github.com/imlargo/medusa/pkg/medusa/core/repository"
 	"github.com/imlargo/medusa/pkg/medusa/core/service"
 	"github.com/imlargo/medusa/pkg/medusa/services/cache"
 	"github.com/imlargo/medusa/pkg/medusa/services/health"
 	"github.com/imlargo/medusa/pkg/medusa/services/storage"
+	"github.com/imlargo/ratelimit"
 	"github.com/imlargo/sse"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/redis/go-redis/v9"
@@ -56,7 +56,7 @@ type Container struct {
 	Cache       cache.Cache             // nil unless Redis is configured
 	Storage     storage.FileStorage     // nil unless object storage is configured
 	Metrics     metrics.MetricsService  // nil unless metrics are enabled
-	RateLimiter ratelimiter.RateLimiter // nil unless rate limiting is enabled
+	RateLimiter *ratelimit.Limiter // nil unless rate limiting is enabled
 
 	// Events publishes server-sent events. Always present: it is in-memory and
 	// costs nothing until something subscribes.
@@ -219,10 +219,22 @@ func (c *Container) initInfrastructure(ctx context.Context, opts Options) error 
 	}
 
 	if cfg.RateLimiter.Enabled {
-		c.RateLimiter = ratelimiter.NewTokenBucketLimiter(ratelimiter.Config{
-			RequestsPerTimeFrame: cfg.RateLimiter.RequestsPerTimeFrame,
-			TimeFrame:            cfg.RateLimiter.TimeFrame,
+		rateLimiter, err := ratelimit.NewWith(ratelimit.Config{
+			// The middleware fills Subject.Identity itself, from gin's resolved
+			// client IP, rather than letting the library parse the request.
+			Identity: ratelimit.FromSubject(),
+			Rules: []ratelimit.Rule{
+				{
+					Quota: ratelimit.Per(cfg.RateLimiter.RequestsPerTimeFrame, cfg.RateLimiter.TimeFrame),
+					Key:   ratelimit.ByIdentity(),
+				},
+			},
 		})
+		if err != nil {
+			return fmt.Errorf("initialize rate limiter: %w", err)
+		}
+		c.RateLimiter = rateLimiter
+		c.onClose(rateLimiter.Close)
 		log.Infow("rate limiter enabled",
 			"requests", cfg.RateLimiter.RequestsPerTimeFrame,
 			"per", cfg.RateLimiter.TimeFrame,
