@@ -2,44 +2,42 @@ package storage
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
-var ErrUnsupportedStorageProvider = errors.New("unsupported storage provider")
-
-func NewStorageClient(provider StorageProvider, config StorageConfig) (*s3.Client, error) {
+// newClient builds the client for provider from cfg. It is the one place a
+// new [Provider] needs to be wired in.
+func newClient(ctx context.Context, provider Provider, cfg Config) (*s3.Client, error) {
 	switch provider {
-	case StorageProviderR2:
-		return NewR2Client(config)
+	case ProviderR2:
+		return newR2Client(ctx, cfg)
 	default:
-		return nil, ErrUnsupportedStorageProvider
+		return nil, fmt.Errorf("%w: %q", ErrUnsupportedProvider, provider)
 	}
 }
 
-func NewR2Client(r2cfg StorageConfig) (*s3.Client, error) {
-	cfg, err := config.LoadDefaultConfig(context.TODO(),
-		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(r2cfg.AccessKeyID, r2cfg.SecretAccessKey, "")),
-		config.WithRegion("auto"),
-		// Cloudflare R2 does not support AWS S3 checksum calculation or validation features.
-		// These settings are disabled to ensure compatibility and prevent errors when interacting with R2.
-		config.WithRequestChecksumCalculation(aws.RequestChecksumCalculationUnset),
-		config.WithResponseChecksumValidation(aws.ResponseChecksumValidationUnset),
+// newR2Client builds a client for Cloudflare R2, an S3-compatible store
+// reached through a per-account endpoint rather than AWS's regional ones.
+func newR2Client(ctx context.Context, cfg Config) (*s3.Client, error) {
+	awsCfg, err := awsconfig.LoadDefaultConfig(ctx,
+		awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(cfg.AccessKeyID, cfg.SecretAccessKey, "")),
+		awsconfig.WithRegion("auto"),
+		// R2 does not support S3's request/response checksum features; leaving
+		// them at their default trips checksum errors R2 has no way to satisfy.
+		awsconfig.WithRequestChecksumCalculation(aws.RequestChecksumCalculationUnset),
+		awsconfig.WithResponseChecksumValidation(aws.ResponseChecksumValidationUnset),
 	)
-
 	if err != nil {
-		return nil, fmt.Errorf("error loading AWS config: %w", err)
+		return nil, fmt.Errorf("storage: load AWS config: %w", err)
 	}
 
-	client := s3.NewFromConfig(cfg, func(o *s3.Options) {
-		o.BaseEndpoint = aws.String(fmt.Sprintf("https://%s.r2.cloudflarestorage.com", r2cfg.AccountID))
+	return s3.NewFromConfig(awsCfg, func(o *s3.Options) {
+		o.BaseEndpoint = aws.String(fmt.Sprintf("https://%s.r2.cloudflarestorage.com", cfg.AccountID))
 		o.UsePathStyle = true
-	})
-
-	return client, nil
+	}), nil
 }

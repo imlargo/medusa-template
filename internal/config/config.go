@@ -139,9 +139,9 @@ func (c RedisConfig) Enabled() bool { return c.URL != "" }
 // StorageConfig holds the object storage credentials and the provider to talk
 // to. Storage is optional: an empty bucket name disables it.
 type StorageConfig struct {
-	storage.StorageConfig
+	storage.Config
 
-	Provider storage.StorageProvider
+	Provider storage.Provider
 }
 
 // Enabled reports whether object storage is configured.
@@ -193,8 +193,8 @@ func Load() (*Config, error) {
 			URL: l.text(envRedisURL, ""),
 		},
 		Storage: StorageConfig{
-			Provider: storage.StorageProvider(strings.ToLower(l.text(envStorageProvider, string(storage.StorageProviderR2)))),
-			StorageConfig: storage.StorageConfig{
+			Provider: storage.Provider(strings.ToLower(l.text(envStorageProvider, string(storage.ProviderR2)))),
+			Config: storage.Config{
 				BucketName:      l.text(envStorageBucketName, ""),
 				AccountID:       l.text(envStorageAccountID, ""),
 				AccessKeyID:     l.text(envStorageAccessKeyID, ""),

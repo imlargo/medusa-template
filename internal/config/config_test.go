@@ -88,11 +88,11 @@ func TestLoadReadsStorage(t *testing.T) {
 	if !cfg.Storage.Enabled() {
 		t.Fatal("Storage.Enabled() = false, want true")
 	}
-	if cfg.Storage.Provider != storage.StorageProviderR2 {
-		t.Errorf("Storage.Provider = %q, want %q", cfg.Storage.Provider, storage.StorageProviderR2)
+	if cfg.Storage.Provider != storage.ProviderR2 {
+		t.Errorf("Storage.Provider = %q, want %q", cfg.Storage.Provider, storage.ProviderR2)
 	}
 	if cfg.Storage.BucketName != "assets" || !cfg.Storage.UsePublicURL {
-		t.Errorf("Storage = %+v, want bucket %q with public URLs", cfg.Storage.StorageConfig, "assets")
+		t.Errorf("Storage = %+v, want bucket %q with public URLs", cfg.Storage.Config, "assets")
 	}
 }
 

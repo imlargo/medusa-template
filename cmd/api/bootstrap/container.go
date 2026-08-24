@@ -198,7 +198,7 @@ func (c *Container) initInfrastructure(ctx context.Context, opts Options) error 
 	}
 
 	if opts.WithStorage && cfg.Storage.Enabled() {
-		fileStorage, err := storage.NewFileStorage(cfg.Storage.Provider, cfg.Storage.StorageConfig)
+		fileStorage, err := storage.NewFileStorage(ctx, cfg.Storage.Provider, cfg.Storage.Config)
 		if err != nil {
 			return fmt.Errorf("initialize storage: %w", err)
 		}
