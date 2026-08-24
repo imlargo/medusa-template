@@ -2,6 +2,18 @@ package storage
 
 import "io"
 
+// File is what an application-level file service hands down when it has a
+// reader and the metadata around it, but has not yet decided the object key.
+// It is a convenience DTO for that layer to pass around — [FileStorage.Upload]
+// itself takes its fields directly and does not accept a File, since Upload
+// needs a key the caller has already chosen and File does not carry one.
+type File struct {
+	Reader      io.Reader
+	Filename    string
+	Size        int64
+	ContentType string
+}
+
 // FileDownload is a downloaded object together with the metadata the
 // provider reported for it. Content must be closed by the caller.
 type FileDownload struct {
