@@ -86,39 +86,29 @@ Medusa is a **production-ready framework** for Go that eliminates the tedious se
 ### Prerequisites
 
 - Go 1.27+ (the `go` directive in `go.mod` is the source of truth)
-- Docker, or a local PostgreSQL 14+ and Redis 7+
+- PostgreSQL 14+
+- Redis 7+ (optional; leave `REDIS_URL` empty to run without a cache)
 
-### With Docker (nothing else to install)
+### Installation
 
 ```bash
 git clone https://github.com/imlargo/medusa.git
 cd medusa
 
+go mod download
+
 cp .env.example .env
-# Generate a secret. Production requires at least 32 characters.
-echo "JWT_SECRET=$(openssl rand -hex 32)" >> .env
+# Point DATABASE_URL at your Postgres and set JWT_SECRET.
+# Generate one with: openssl rand -hex 32
 
-docker compose up --build
+go run ./cmd/migrate        # apply the schema
+go run ./cmd/api            # start the API
 ```
-
-Brings up Postgres, Redis, runs the migrations and then the API. The API waits
-for both dependencies to report healthy, so the first start does not race the
-database.
 
 ```bash
 curl localhost:8000/health          # liveness
 curl localhost:8000/ready           # readiness, with a per-dependency breakdown
 open  localhost:8000/docs/index.html
-```
-
-### Without Docker
-
-```bash
-cp .env.example .env
-# Point DATABASE_URL at your Postgres and set JWT_SECRET.
-
-go run ./cmd/migrate        # apply the schema
-go run ./cmd/api            # start the API
 ```
 
 Misconfiguration fails at startup with the full list of problems, not one
@@ -131,13 +121,15 @@ JWT_SECRET: must be at least 32 characters in production
 RATE_LIMITER_TIME_FRAME: must be positive when the rate limiter is enabled, got 0s
 ```
 
-### Deploying
+### Docker
 
 The `Dockerfile` produces a static binary on a distroless base and carries both
 `api` and `migrate`, so migrations run against the exact code being deployed:
 
 ```bash
-docker run --rm --env-file .env --entrypoint /usr/local/bin/migrate <image>
+docker build -t medusa .
+docker run --rm --env-file .env -p 8000:8000 medusa
+docker run --rm --env-file .env --entrypoint /usr/local/bin/migrate medusa
 ```
 
 Two things to get right:
@@ -145,12 +137,8 @@ Two things to get right:
 - **`HOST` must be `0.0.0.0`** in a container. The config default is `localhost`,
   which inside a container means reachable from nothing. The image already sets it.
 - **The stop grace period must exceed `SHUTDOWN_TIMEOUT`** (10s by default).
-  `docker stop` sends SIGKILL at 10s, so a bare `docker stop` cuts the drain
-  short; `docker-compose.yml` sets `stop_grace_period: 20s`, and Kubernetes
-  allows 30s by default.
-
-`.github/workflows/` has CI (gofmt, vet, build, `test -race`, tidy check, and a
-Dockerfile build) and a build-push job that publishes to GHCR on `main`.
+  `docker stop` sends SIGKILL at 10s, which cuts the drain short — raise it with
+  `docker stop -t 20`. Kubernetes allows 30s by default.
 
 ### Modern Bootstrap Architecture
 
