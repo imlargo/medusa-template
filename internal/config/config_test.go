@@ -221,3 +221,113 @@ func TestEnvironmentPredicates(t *testing.T) {
 		})
 	}
 }
+
+// Docs default to off in production: publishing the whole API surface should be
+// a decision, not something an environment variable forgets to turn off.
+func TestDocsDefaultOffInProductionOnly(t *testing.T) {
+	tests := map[string]bool{
+		"development": true,
+		"staging":     true,
+		"production":  false,
+	}
+
+	for environment, want := range tests {
+		t.Run(environment, func(t *testing.T) {
+			validEnv(t)
+			t.Setenv(envAppEnv, environment)
+
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load() = %v, want nil error", err)
+			}
+			if got := cfg.Runtime.DocsEnabled; got != want {
+				t.Errorf("DocsEnabled = %v, want %v in %s", got, want, environment)
+			}
+		})
+	}
+}
+
+func TestDocsCanBeForcedOnInProduction(t *testing.T) {
+	validEnv(t)
+	t.Setenv(envAppEnv, "production")
+	t.Setenv(envDocsEnabled, "true")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() = %v, want nil error", err)
+	}
+	if !cfg.Runtime.DocsEnabled {
+		t.Error("DocsEnabled = false, want an explicit DOCS_ENABLED=true to win")
+	}
+}
+
+// The two shutdown phases are sequential, so their budgets have to add up to the
+// total rather than each being it. Exceeding the total means the orchestrator
+// SIGKILLs the process mid-drain.
+func TestShutdownBudgetIsSplitNotDuplicated(t *testing.T) {
+	validEnv(t)
+	t.Setenv(envShutdownTimeout, "30s")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() = %v, want nil error", err)
+	}
+
+	runtime := cfg.Runtime
+	drain := runtime.DrainTimeout()
+	server := runtime.ServerShutdownTimeout()
+
+	if drain <= 0 {
+		t.Errorf("DrainTimeout() = %s, want a positive slice", drain)
+	}
+	if server <= 0 {
+		t.Errorf("ServerShutdownTimeout() = %s, want a positive slice", server)
+	}
+	if total := drain + server; total != runtime.ShutdownTimeout {
+		t.Errorf("drain (%s) + server (%s) = %s, want exactly %s", drain, server, total, runtime.ShutdownTimeout)
+	}
+}
+
+func TestRuntimeDefaults(t *testing.T) {
+	validEnv(t)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() = %v, want nil error", err)
+	}
+
+	if cfg.Runtime.ShutdownTimeout != defaultShutdownTimeout {
+		t.Errorf("ShutdownTimeout = %s, want %s", cfg.Runtime.ShutdownTimeout, defaultShutdownTimeout)
+	}
+	if cfg.Runtime.MaxRequestBody != defaultMaxRequestBody {
+		t.Errorf("MaxRequestBody = %d, want %d", cfg.Runtime.MaxRequestBody, defaultMaxRequestBody)
+	}
+}
+
+func TestRuntimeValidation(t *testing.T) {
+	tests := []struct {
+		name    string
+		env     map[string]string
+		wantErr string
+	}{
+		{"non-positive shutdown", map[string]string{envShutdownTimeout: "0s"}, envShutdownTimeout + ": must be positive"},
+		{"non-positive body cap", map[string]string{envMaxRequestBody: "0"}, envMaxRequestBody + ": must be positive"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			validEnv(t)
+			for key, value := range tt.env {
+				t.Setenv(key, value)
+			}
+
+			_, err := Load()
+			if err == nil {
+				t.Fatal("Load() = nil error, want a validation failure")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("Load() error = %q, want it to contain %q", err, tt.wantErr)
+			}
+		})
+	}
+}

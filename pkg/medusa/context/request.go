@@ -2,6 +2,7 @@ package context
 
 import (
 	"errors"
+	"net/http"
 	"reflect"
 	"strconv"
 	"strings"
@@ -47,6 +48,13 @@ func (c *Context) BindURI(obj any) error {
 // a field-by-field map when the validator rejected the value, a plain 400 when
 // the payload could not be parsed at all.
 func (c *Context) formatValidationError(err error) error {
+	// A body cut off by the size cap is not a validation problem, and reporting
+	// it as one sends the client hunting for a field that is fine.
+	var tooLarge *http.MaxBytesError
+	if errors.As(err, &tooLarge) {
+		return responses.PayloadTooLarge(tooLarge.Limit)
+	}
+
 	var validationErrors validator.ValidationErrors
 	if errors.As(err, &validationErrors) {
 		details := make(map[string]string, len(validationErrors))

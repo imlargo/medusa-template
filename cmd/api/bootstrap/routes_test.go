@@ -186,3 +186,47 @@ func TestDrainEventStreamsWithoutALifecycle(t *testing.T) {
 		t.Errorf("DrainEventStreams() = %v, want nil when no lifecycle is configured", err)
 	}
 }
+
+// The banner is where an operator sees whether docs are exposed, so it has to
+// tell the truth rather than always printing a URL.
+func TestBannerReportsWhetherDocsAreServed(t *testing.T) {
+	tests := []struct {
+		name    string
+		enabled bool
+		want    string
+	}{
+		{"enabled shows the url", true, "/docs/index.html"},
+		{"disabled says so", false, "disabled"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := newTestContainer(t, func(c *Container) {
+				c.Config.Runtime.DocsEnabled = tt.enabled
+			})
+
+			var out strings.Builder
+			printBanner(&out, "medusa-api", c.Config)
+
+			if !strings.Contains(out.String(), tt.want) {
+				t.Errorf("banner = %q, want it to contain %q", out.String(), tt.want)
+			}
+		})
+	}
+}
+
+// Docs must not be registered at all when disabled; a banner that says
+// "disabled" while /docs still answers would be worse than no gate.
+func TestDocsRoutesFollowTheConfig(t *testing.T) {
+	tests := map[bool]int{true: http.StatusOK, false: http.StatusNotFound}
+
+	for enabled, want := range tests {
+		router := newRouter(newTestContainer(t, func(c *Container) {
+			c.Config.Runtime.DocsEnabled = enabled
+		}))
+
+		if got := get(t, router, "/docs/index.html").Code; got != want {
+			t.Errorf("DocsEnabled=%v: GET /docs/index.html = %d, want %d", enabled, got, want)
+		}
+	}
+}

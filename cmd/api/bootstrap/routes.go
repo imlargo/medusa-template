@@ -49,6 +49,7 @@ func registerRoutes(router *gin.Engine, c *Container) {
 	router.Use(
 		middleware.CreateRequestIDMiddleware(),
 		middleware.NewCorsMiddleware(c.Config.Server.Host, c.Config.CORS.AllowedOrigins),
+		middleware.NewBodyLimitMiddleware(c.Config.Runtime.MaxRequestBody),
 	)
 
 	if c.Metrics != nil {
@@ -60,13 +61,17 @@ func registerRoutes(router *gin.Engine, c *Container) {
 		router.GET("/metrics", gin.WrapH(promhttp.HandlerFor(c.MetricsRegistry, promhttp.HandlerOpts{})))
 	}
 
-	// The spec is injected rather than imported by the docs package, which is
-	// what keeps pkg/medusa independent of this application.
-	medusadocs.RegisterDocs(router, medusadocs.Config{
-		Spec: apidocs.SwaggerInfo,
-		Host: c.Config.Server.Host,
-		Port: c.Config.Server.Port,
-	})
+	// Off by default in production: publishing the whole API surface, including
+	// endpoints not yet meant to be public, should be a decision.
+	if c.Config.Runtime.DocsEnabled {
+		// The spec is injected rather than imported by the docs package, which is
+		// what keeps pkg/medusa independent of this application.
+		medusadocs.RegisterDocs(router, medusadocs.Config{
+			Spec: apidocs.SwaggerInfo,
+			Host: c.Config.Server.Host,
+			Port: c.Config.Server.Port,
+		})
+	}
 
 	// Probes sit outside the API group on purpose: no auth and no rate limit, so
 	// orchestrators keep getting an answer even while the app sheds load.

@@ -85,29 +85,72 @@ Medusa is a **production-ready framework** for Go that eliminates the tedious se
 
 ### Prerequisites
 
-- Go 1.21 or higher
-- PostgreSQL 14+
-- Redis 7+
+- Go 1.27+ (the `go` directive in `go.mod` is the source of truth)
+- Docker, or a local PostgreSQL 14+ and Redis 7+
 
-### Installation
+### With Docker (nothing else to install)
 
 ```bash
-# Clone the repository
-git clone https://github.com/imlargo/medusa. git
+git clone https://github.com/imlargo/medusa.git
 cd medusa
 
-# Install dependencies
-go mod download
-
-# Copy environment configuration
 cp .env.example .env
-# Edit .env with your database and Redis credentials
+# Generate a secret. Production requires at least 32 characters.
+echo "JWT_SECRET=$(openssl rand -hex 32)" >> .env
 
-# Run the application
-go run cmd/api/main.go
+docker compose up --build
 ```
 
-The server will start at `http://localhost:8080`
+Brings up Postgres, Redis, runs the migrations and then the API. The API waits
+for both dependencies to report healthy, so the first start does not race the
+database.
+
+```bash
+curl localhost:8000/health          # liveness
+curl localhost:8000/ready           # readiness, with a per-dependency breakdown
+open  localhost:8000/docs/index.html
+```
+
+### Without Docker
+
+```bash
+cp .env.example .env
+# Point DATABASE_URL at your Postgres and set JWT_SECRET.
+
+go run ./cmd/migrate        # apply the schema
+go run ./cmd/api            # start the API
+```
+
+Misconfiguration fails at startup with the full list of problems, not one
+variable at a time:
+
+```
+medusa-api: invalid configuration:
+DATABASE_URL is required
+JWT_SECRET: must be at least 32 characters in production
+RATE_LIMITER_TIME_FRAME: must be positive when the rate limiter is enabled, got 0s
+```
+
+### Deploying
+
+The `Dockerfile` produces a static binary on a distroless base and carries both
+`api` and `migrate`, so migrations run against the exact code being deployed:
+
+```bash
+docker run --rm --env-file .env --entrypoint /usr/local/bin/migrate <image>
+```
+
+Two things to get right:
+
+- **`HOST` must be `0.0.0.0`** in a container. The config default is `localhost`,
+  which inside a container means reachable from nothing. The image already sets it.
+- **The stop grace period must exceed `SHUTDOWN_TIMEOUT`** (10s by default).
+  `docker stop` sends SIGKILL at 10s, so a bare `docker stop` cuts the drain
+  short; `docker-compose.yml` sets `stop_grace_period: 20s`, and Kubernetes
+  allows 30s by default.
+
+`.github/workflows/` has CI (gofmt, vet, build, `test -race`, tidy check, and a
+Dockerfile build) and a build-push job that publishes to GHCR on `main`.
 
 ### Modern Bootstrap Architecture
 
@@ -589,6 +632,16 @@ APP_ENV=development
 HOST=localhost
 PORT=8000
 
+# Graceful shutdown budget, split between draining SSE streams and draining HTTP
+# requests. Must stay under the orchestrator's grace period.
+SHUTDOWN_TIMEOUT=10s
+
+# Largest accepted request body, in bytes (1 MiB)
+MAX_REQUEST_BODY_BYTES=1048576
+
+# Serve Swagger UI at /docs. Defaults to on outside production.
+DOCS_ENABLED=true
+
 # Database (required)
 DATABASE_URL=postgres://user:password@localhost:5432/dbname?sslmode=disable
 
@@ -624,7 +677,10 @@ STORAGE_USE_PUBLIC_URL=true
 | Variable | Default | Notes |
 |---|---|---|
 | `APP_ENV` | `development` | |
-| `HOST` / `PORT` | `localhost` / `8000` | |
+| `HOST` / `PORT` | `localhost` / `8000` | `0.0.0.0` in a container |
+| `SHUTDOWN_TIMEOUT` | `10s` | Must fit the orchestrator's grace period |
+| `MAX_REQUEST_BODY_BYTES` | `1048576` | 1 MiB |
+| `DOCS_ENABLED` | on, except in production | |
 | `DATABASE_URL` | — | Required |
 | `JWT_SECRET` | — | Required; 32+ chars in production |
 | `JWT_ISSUER` | `medusa` | |

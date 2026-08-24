@@ -1,0 +1,79 @@
+name: build-push
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+# Production deployments finish in order. Never cancel a running build to
+# replace it with a newer one; queue the next one instead.
+concurrency:
+  group: medusa-build-push
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # GITHUB_TOKEN is enough for GHCR with packages:write, so there is no
+      # secret to configure.
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          # Tied to the repository identity rather than to a configurable
+          # username: a differently configured account silently publishes to
+          # another package while the deploy target keeps pulling a stale image.
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=prod,enable={{is_default_branch}}
+            type=sha,format=short
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: Build & push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            RELEASE_SHA=${{ github.sha }}
+          # Both directions. cache-to alone exports layers nothing ever imports,
+          # so every build stays a cold build.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Uncomment and set the secrets to have the deploy target pull the new
+      # :prod image. Migrations run from the same image, so run them before or
+      # as part of the release rather than from a separate build.
+      #
+      # - name: Trigger deployment
+      #   run: |
+      #     curl --fail-with-body -sS -X POST \
+      #       "${{ secrets.DOKPLOY_URL }}/api/application.deploy" \
+      #       -H "accept: application/json" \
+      #       -H "x-api-key: ${{ secrets.DOKPLOY_API_KEY }}" \
+      #       -H "Content-Type: application/json" \
+      #       -d "{\"applicationId\":\"${{ secrets.DOKPLOY_APP_ID }}\",\"title\":\"Deploy ${{ github.sha }}\"}"

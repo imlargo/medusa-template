@@ -52,6 +52,7 @@ type Config struct {
 	app.Config
 
 	Environment Environment
+	Runtime     RuntimeConfig
 	CORS        CORSConfig
 	RateLimiter RateLimiterConfig
 	Redis       RedisConfig
@@ -62,6 +63,34 @@ type Config struct {
 // server's own host is always allowed and does not need to be repeated here.
 type CORSConfig struct {
 	AllowedOrigins []string
+}
+
+// RuntimeConfig holds settings that shape how the process serves and stops,
+// rather than what it connects to.
+type RuntimeConfig struct {
+	// ShutdownTimeout is the budget for draining in-flight work on shutdown.
+	ShutdownTimeout time.Duration
+
+	// MaxRequestBody caps an accepted request body, in bytes.
+	MaxRequestBody int64
+
+	// DocsEnabled serves the Swagger UI. It defaults to off in production, where
+	// publishing the full API surface is a decision rather than a default.
+	DocsEnabled bool
+}
+
+// Shutdown runs in two sequential phases — long-lived streams are ended first,
+// then the HTTP server drains ordinary requests — so the two budgets below have
+// to add up to ShutdownTimeout rather than each being it.
+
+// DrainTimeout is the slice spent ending long-lived streams.
+func (c RuntimeConfig) DrainTimeout() time.Duration {
+	return c.ShutdownTimeout / 3
+}
+
+// ServerShutdownTimeout is what remains for in-flight requests.
+func (c RuntimeConfig) ServerShutdownTimeout() time.Duration {
+	return c.ShutdownTimeout - c.DrainTimeout()
 }
 
 // RateLimiterConfig caps how many requests a single client IP may issue.
@@ -99,6 +128,8 @@ func Load() (*Config, error) {
 
 	var l loader
 
+	environment := Environment(strings.ToLower(l.text(envAppEnv, string(EnvDevelopment))))
+
 	cfg := &Config{
 		Config: app.Config{
 			Server: app.ServerConfig{
@@ -115,7 +146,12 @@ func Load() (*Config, error) {
 				RefreshExpiration: l.duration(envJWTRefreshExpiration, defaultRefreshExpiration),
 			},
 		},
-		Environment: Environment(strings.ToLower(l.text(envAppEnv, string(EnvDevelopment)))),
+		Environment: environment,
+		Runtime: RuntimeConfig{
+			ShutdownTimeout: l.duration(envShutdownTimeout, defaultShutdownTimeout),
+			MaxRequestBody:  int64(l.integer(envMaxRequestBody, defaultMaxRequestBody)),
+			DocsEnabled:     l.boolean(envDocsEnabled, !environment.IsProduction()),
+		},
 		CORS: CORSConfig{
 			AllowedOrigins: l.list(envCORSAllowedOrigins),
 		},
@@ -174,6 +210,14 @@ func (c *Config) Validate() error {
 
 	if c.Environment.IsProduction() && len(c.Auth.JwtSecret) < minJWTSecretLength {
 		errs = append(errs, fmt.Errorf("%s: must be at least %d characters in %s", envJWTSecret, minJWTSecretLength, EnvProduction))
+	}
+
+	if c.Runtime.ShutdownTimeout <= 0 {
+		errs = append(errs, fmt.Errorf("%s: must be positive, got %s", envShutdownTimeout, c.Runtime.ShutdownTimeout))
+	}
+
+	if c.Runtime.MaxRequestBody <= 0 {
+		errs = append(errs, fmt.Errorf("%s: must be positive, got %d", envMaxRequestBody, c.Runtime.MaxRequestBody))
 	}
 
 	if c.RateLimiter.Enabled {

@@ -35,11 +35,6 @@ const (
 	// eventRetention is how long a published event stays replayable, which is
 	// the window a reconnecting client can resume from without losing events.
 	eventRetention = 5 * time.Minute
-
-	// eventDrainTimeout bounds how long shutdown waits for open SSE streams to
-	// end. It is spent before the HTTP server's own shutdown window, so the two
-	// together have to fit inside the orchestrator's termination grace period.
-	eventDrainTimeout = 5 * time.Second
 )
 
 // Container holds every dependency of the application.
@@ -293,9 +288,10 @@ func (c *Container) DrainEventStreams(ctx context.Context) error {
 		return nil
 	}
 
-	c.Logger.Sugar().Infow("draining event streams", "open", open, "timeout", eventDrainTimeout)
+	timeout := c.Config.Runtime.DrainTimeout()
+	c.Logger.Sugar().Infow("draining event streams", "open", open, "timeout", timeout)
 
-	drainCtx, cancel := context.WithTimeout(ctx, eventDrainTimeout)
+	drainCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	if err := c.EventsLifecycle.Shutdown(drainCtx); err != nil {

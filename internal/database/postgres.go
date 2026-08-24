@@ -2,6 +2,8 @@ package database
 
 import (
 	"fmt"
+	"log"
+	"os"
 	"time"
 
 	"gorm.io/driver/postgres"
@@ -31,9 +33,15 @@ const (
 
 	// DefaultConnMaxIdleTime closes connections nobody is using.
 	DefaultConnMaxIdleTime = 10 * time.Minute
+
+	// slowQueryThreshold is when gorm starts reporting a statement as slow.
+	slowQueryThreshold = 200 * time.Millisecond
 )
 
 // PostgresConfig tunes the connection and the pool behind it.
+//
+// Record-not-found is never logged as an error: the service layer classifies it
+// as a 404, so logging it would turn every miss into noise at error level.
 type PostgresConfig struct {
 	MaxOpenConns    int
 	MaxIdleConns    int
@@ -95,8 +103,16 @@ func NewPostgresDatabase(url string, opts ...PostgresOption) (*gorm.DB, error) {
 		logLevel = gormlogger.Info
 	}
 
+	// gormlogger.Default is colourful, and ANSI escapes in a production log
+	// stream are noise every aggregator has to strip. Colour follows the same
+	// switch as statement logging: on for a terminal, off for a log pipeline.
 	db, err := gorm.Open(postgres.Open(url), &gorm.Config{
-		Logger: gormlogger.Default.LogMode(logLevel),
+		Logger: gormlogger.New(log.New(os.Stderr, "", log.LstdFlags), gormlogger.Config{
+			SlowThreshold:             slowQueryThreshold,
+			LogLevel:                  logLevel,
+			Colorful:                  cfg.LogQueries,
+			IgnoreRecordNotFoundError: true,
+		}),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("open postgres connection: %w", err)

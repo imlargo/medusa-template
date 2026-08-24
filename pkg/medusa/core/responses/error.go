@@ -32,6 +32,9 @@ const (
 	// ErrCodeConflict: the request conflicts with the resource's current state (409).
 	ErrCodeConflict ErrorCode = "CONFLICT"
 
+	// ErrCodePayloadTooLarge: the request body exceeded the configured cap (413).
+	ErrCodePayloadTooLarge ErrorCode = "PAYLOAD_TOO_LARGE"
+
 	// ErrCodeTooManyRequests: the client exceeded its rate limit (429).
 	ErrCodeTooManyRequests ErrorCode = "TOO_MANY_REQUESTS"
 
@@ -115,6 +118,16 @@ func NotFound(resource string) *Error {
 // Conflict reports a clash with the resource's current state (409).
 func Conflict(message string) *Error {
 	return &Error{Code: ErrCodeConflict, Message: message, Status: http.StatusConflict}
+}
+
+// PayloadTooLarge reports a request body over the limit (413).
+func PayloadTooLarge(maxBytes int64) *Error {
+	return &Error{
+		Code:    ErrCodePayloadTooLarge,
+		Message: "request body is too large",
+		Status:  http.StatusRequestEntityTooLarge,
+		Details: map[string]int64{"max_bytes": maxBytes},
+	}
 }
 
 // TooManyRequests reports an exhausted rate limit (429), telling the client how

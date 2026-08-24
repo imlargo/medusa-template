@@ -56,6 +56,9 @@ func NewWithOptions(ctx context.Context, name string, opts Options) (*App, error
 		container.Logger,
 		http.WithServerHost(cfg.Server.Host),
 		http.WithServerPort(cfg.Server.Port),
+		// The remainder of the shutdown budget, after the stream drain below has
+		// taken its slice.
+		http.WithShutdownTimeout(cfg.Runtime.ServerShutdownTimeout()),
 	)
 
 	printBanner(os.Stdout, name, cfg)
@@ -86,11 +89,16 @@ func (a *App) Close() error {
 func printBanner(w io.Writer, name string, cfg *config.Config) {
 	const separator = "─────────────────────────────────"
 
+	docs := "disabled"
+	if cfg.Runtime.DocsEnabled {
+		docs = tools.GetFullDocsUrl(cfg.Server.Host, cfg.Server.Port)
+	}
+
 	fields := [][2]string{
 		{"App", name},
 		{"Env", string(cfg.Environment)},
 		{"Server", tools.GetFullAppUrl(cfg.Server.Host, cfg.Server.Port)},
-		{"Docs", tools.GetFullDocsUrl(cfg.Server.Host, cfg.Server.Port)},
+		{"Docs", docs},
 	}
 
 	var banner strings.Builder
