@@ -38,6 +38,12 @@ type FileStorage interface {
 	// BulkDelete removes many objects, splitting the request into batches of
 	// [MaxBatchSize]. It reports which keys were removed and which were not,
 	// rather than stopping at the first failure or the first batch's error.
+	//
+	// The returned *DeleteResult is never nil once any batch has run, even
+	// when err is non-nil: it carries every key resolved by the batches that
+	// completed before the one that failed, so a batch request itself
+	// failing outright does not erase the record of what earlier batches
+	// already deleted.
 	BulkDelete(ctx context.Context, keys []string) (*DeleteResult, error)
 
 	// GetPresignedURL returns a URL granting temporary access to key without
@@ -88,6 +94,14 @@ type fileStorage struct {
 // key is a startup error naming the problem, not a failure surfacing on
 // whichever request happens to touch storage first. ctx bounds only that
 // check; it is not retained past this call.
+//
+// The credential therefore needs HeadBucket permission on the bucket, in
+// addition to whatever object-level actions the application performs. A
+// credential scoped to only PutObject/GetObject/DeleteObject on a prefix —
+// a common least-privilege pattern — will fail here even though every
+// operation this package actually performs would have worked; grant
+// HeadBucket (or ListBucket, which implies it on most providers) alongside
+// them.
 func NewFileStorage(ctx context.Context, provider Provider, cfg Config) (FileStorage, error) {
 	if !provider.IsValid() {
 		return nil, fmt.Errorf("%w: %q", ErrUnsupportedProvider, provider)
@@ -113,6 +127,14 @@ func NewFileStorage(ctx context.Context, provider Provider, cfg Config) (FileSto
 // newFileStorage wires a FileStorage from an already-built client. Split out
 // from NewFileStorage so tests can exercise every operation against a fake
 // s3API and presignAPI without a network.
+//
+// provider must be present in the providers registry — NewFileStorage
+// guarantees this via Provider.IsValid() before it ever calls this function.
+// A test that wants to exercise a provider must register it in providers
+// first; passing one that is not there makes publicURL panic on a nil
+// map entry rather than return an error, since that path is unreachable
+// through the public API and is not worth an error return every caller has
+// to check for a case that can only be reached by breaking this precondition.
 func newFileStorage(client s3API, presigner presignAPI, provider Provider, cfg Config) *fileStorage {
 	return &fileStorage{client: client, presigner: presigner, provider: provider, config: cfg}
 }
@@ -141,17 +163,21 @@ func (s *fileStorage) Upload(ctx context.Context, key string, reader io.Reader, 
 	}
 
 	if s.config.UsePublicURL {
-		publicURL, err := s.GetPublicURL(key)
-		if err != nil {
-			return nil, err
-		}
-		result.URL = publicURL
+		// publicURL, not GetPublicURL: key is already known valid, and the
+		// object is already written. A public-URL builder failing at this
+		// point would report a successful write as a failed Upload — worse
+		// than the URL it can't build — and publicURL cannot fail: it only
+		// ever runs for a provider the providers registry has a builder for.
+		result.URL = s.publicURL(key)
 	}
 
 	return result, nil
 }
 
-func (s *fileStorage) Download(ctx context.Context, key string) (io.ReadCloser, error) {
+// getObject validates key and fetches the object, wrapping any client error
+// once — the one place Download and GetFileForDownload's shared request
+// belongs, so a change to either has nowhere else to be applied.
+func (s *fileStorage) getObject(ctx context.Context, key string) (*s3.GetObjectOutput, error) {
 	if err := ValidateKey(key); err != nil {
 		return nil, err
 	}
@@ -163,21 +189,21 @@ func (s *fileStorage) Download(ctx context.Context, key string) (io.ReadCloser, 
 	if err != nil {
 		return nil, fmt.Errorf("storage: download %q: %w", key, err)
 	}
+	return out, nil
+}
 
+func (s *fileStorage) Download(ctx context.Context, key string) (io.ReadCloser, error) {
+	out, err := s.getObject(ctx, key)
+	if err != nil {
+		return nil, err
+	}
 	return out.Body, nil
 }
 
 func (s *fileStorage) GetFileForDownload(ctx context.Context, key string) (*FileDownload, error) {
-	if err := ValidateKey(key); err != nil {
-		return nil, err
-	}
-
-	out, err := s.client.GetObject(ctx, &s3.GetObjectInput{
-		Bucket: aws.String(s.config.BucketName),
-		Key:    aws.String(key),
-	})
+	out, err := s.getObject(ctx, key)
 	if err != nil {
-		return nil, fmt.Errorf("storage: download %q: %w", key, err)
+		return nil, err
 	}
 
 	contentType := "application/octet-stream"
@@ -222,11 +248,14 @@ func (s *fileStorage) BulkDelete(ctx context.Context, keys []string) (*DeleteRes
 		end := min(i+MaxBatchSize, len(keys))
 
 		deleted, failed, err := s.deleteBatch(ctx, keys[i:end])
-		if err != nil {
-			return nil, fmt.Errorf("storage: bulk delete batch %d-%d: %w", i, end-1, err)
-		}
 		result.Deleted = append(result.Deleted, deleted...)
 		result.Failed = append(result.Failed, failed...)
+		if err != nil {
+			// result still carries every batch that succeeded before this
+			// one, so a caller does not lose track of what was actually
+			// deleted just because a later batch's request failed outright.
+			return result, fmt.Errorf("storage: bulk delete batch %d-%d: %w", i, end-1, err)
+		}
 	}
 
 	return result, nil
@@ -289,28 +318,19 @@ func (s *fileStorage) GetPublicURL(key string) (string, error) {
 	if err := ValidateKey(key); err != nil {
 		return "", err
 	}
-	escapedKey := escapeKeyPath(key)
-
-	if s.config.PublicDomain != "" {
-		return fmt.Sprintf("https://%s/%s", s.config.PublicDomain, escapedKey), nil
-	}
-
-	switch s.provider {
-	case ProviderR2:
-		return fmt.Sprintf("https://pub-%s.r2.dev/%s", s.config.AccountID, escapedKey), nil
-	default:
-		return "", fmt.Errorf("%w: %q has no public URL scheme", ErrUnsupportedProvider, s.provider)
-	}
+	return s.publicURL(key), nil
 }
 
-// escapeKeyPath percent-encodes each "/"-separated segment of key, so a key
-// containing a space, '#', '?' or other character reserved in a URL still
-// produces a link that resolves to it, instead of one truncated at the first
-// such character or that resolves to a different object entirely.
-func escapeKeyPath(key string) string {
-	segments := strings.Split(key, "/")
-	for i, segment := range segments {
-		segments[i] = url.PathEscape(segment)
+// publicURL builds the public URL for key without validating it again — the
+// exported GetPublicURL already has, and so has Upload by the time it calls
+// this after a successful write. It cannot fail: newFileStorage is only ever
+// handed a provider present in the providers registry, and every entry there
+// has a publicURL builder.
+func (s *fileStorage) publicURL(key string) string {
+	escapedKey := (&url.URL{Path: key}).EscapedPath()
+
+	if s.config.PublicDomain != "" {
+		return fmt.Sprintf("https://%s/%s", s.config.PublicDomain, escapedKey)
 	}
-	return strings.Join(segments, "/")
+	return providers[s.provider].publicURL(s.config, escapedKey)
 }

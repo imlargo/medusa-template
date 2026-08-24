@@ -291,6 +291,45 @@ func TestBulkDeleteReportsPartialFailure(t *testing.T) {
 	}
 }
 
+// fakeS3BatchFailAfter fails DeleteObjects itself (not a partial per-key
+// failure) starting from the call at index failAt, so a test can put a
+// batching boundary between successful and failed batches.
+type fakeS3BatchFailAfter struct {
+	fakeS3
+	failAt int
+	calls  int
+}
+
+func (f *fakeS3BatchFailAfter) DeleteObjects(ctx context.Context, in *s3.DeleteObjectsInput, optFns ...func(*s3.Options)) (*s3.DeleteObjectsOutput, error) {
+	f.calls++
+	if f.calls > f.failAt {
+		return nil, errors.New("throttled")
+	}
+	return f.fakeS3.DeleteObjects(ctx, in, optFns...)
+}
+
+func TestBulkDeletePreservesPartialResultOnLaterBatchFailure(t *testing.T) {
+	client := &fakeS3BatchFailAfter{failAt: 1}
+	fs := newTestStorage(&client.fakeS3, &fakePresigner{}, Config{})
+	fs.client = client // route through the wrapper, not the embedded fake directly
+
+	keys := make([]string, MaxBatchSize+1)
+	for i := range keys {
+		keys[i] = fmt.Sprintf("k%04d", i)
+	}
+
+	result, err := fs.BulkDelete(context.Background(), keys)
+	if err == nil {
+		t.Fatal("BulkDelete() error = nil, want the second batch's failure surfaced")
+	}
+	if result == nil {
+		t.Fatal("BulkDelete() result = nil, want the first batch's deletions preserved despite the second batch failing")
+	}
+	if len(result.Deleted) != MaxBatchSize {
+		t.Errorf("Deleted has %d keys, want the %d from the batch that succeeded before the failure", len(result.Deleted), MaxBatchSize)
+	}
+}
+
 func TestGetPresignedURLDefaultsExpiry(t *testing.T) {
 	presigner := &fakePresigner{}
 	fs := newTestStorage(&fakeS3{}, presigner, Config{})
@@ -335,17 +374,6 @@ func TestGetPublicURLPrefersCustomDomain(t *testing.T) {
 	}
 	if want := "https://cdn.example.com/a.png"; url != want {
 		t.Errorf("GetPublicURL() = %q, want %q", url, want)
-	}
-}
-
-func TestGetPublicURLUnsupportedProvider(t *testing.T) {
-	fs := newFileStorage(&fakeS3{}, &fakePresigner{}, Provider("gcs"), Config{
-		BucketName: "b", AccountID: "a", AccessKeyID: "k", SecretAccessKey: "s",
-	})
-
-	_, err := fs.GetPublicURL("a.png")
-	if !errors.Is(err, ErrUnsupportedProvider) {
-		t.Errorf("GetPublicURL() error = %v, want ErrUnsupportedProvider", err)
 	}
 }
 

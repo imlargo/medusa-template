@@ -10,15 +10,14 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
-// newClient builds the client for provider from cfg. It is the one place a
-// new [Provider] needs to be wired in.
+// newClient builds the client for provider from cfg, using the constructor
+// registered for it in providers.
 func newClient(ctx context.Context, provider Provider, cfg Config) (*s3.Client, error) {
-	switch provider {
-	case ProviderR2:
-		return newR2Client(ctx, cfg)
-	default:
+	spec, ok := providers[provider]
+	if !ok {
 		return nil, fmt.Errorf("%w: %q", ErrUnsupportedProvider, provider)
 	}
+	return spec.newClient(ctx, cfg)
 }
 
 // newR2Client builds a client for Cloudflare R2, an S3-compatible store
